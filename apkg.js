@@ -1,5 +1,11 @@
 // Import modules
-import { ANK_SEPARATOR, GLOBAL_CORS_PROXY } from './modules/constants.js';
+import { ANK_SEPARATOR, GLOBAL_CORS_PROXY } from './modules/constants.js";
+import {
+  showError,
+  validateSqliteHeader,
+  validateURL,
+  validateZipHeader,
+} from "./modules/errorHandling.js";
 import { arrayNamesToObj, updateNestedObj, summer, mean } from './modules/utils.js';
 
 // For backward compatibility within this file
@@ -288,7 +294,13 @@ function parseImages(imageTable,unzip,filenames){
       });
 }
 
-function converterEngine (input) { // fn BLOB => Binary => Base64 ?
+/**
+ * Converts a byte array to a base64 string
+ * @param {ArrayBuffer} input - Binary data
+ * @returns {string} Base64-encoded string
+ */
+function converterEngine(input) {
+  // fn BLOB => Binary => Base64 ?
   // adopted from https://github.com/NYTimes/svg-crowbar/issues/16
   const uInt8Array = new Uint8Array(input);
   let i = uInt8Array.length;
@@ -298,8 +310,14 @@ function converterEngine (input) { // fn BLOB => Binary => Base64 ?
     }
   const base64 = window.btoa(biStr.join(""));
     return base64;
-};
+}
 
+/**
+ * Converts Anki APKG binary data to table format and displays deck contents
+ * Validates ZIP header before decompression to prevent errors with corrupted files
+ * @param {ArrayBuffer} ankiArray - APKG file binary data
+ * @param {Object} options - Configuration options { loadImage: boolean }
+ */
 function ankiBinaryToTable(ankiArray, options) {
   // Validate ZIP header before attempting decompression
   if (!validateZipHeader(ankiArray)) {
@@ -1249,9 +1267,46 @@ function readySetup() {
         if (!f) {
             f = event.dataTransfer.files[0];
         }
-        // console.log(f.name);
+        
+    if (!f) {
+      showError("No file selected.");
+      return;
+    }
 
-        var reader = new FileReader();
+    // Validate file type based on context
+    const fileName = f.name.toLowerCase();
+    const isApkgFile = fileName.endsWith(".apkg");
+    const isSqliteFile =
+      fileName.endsWith(".anki2") || fileName.endsWith(".anki21");
+
+    // Check if we're expecting APKG or SQLite based on the event source
+    const expectApkg = event.target.id === "ankiFile";
+    const expectSqlite = event.target.id === "sqliteFile";
+
+    if (expectApkg && !isApkgFile) {
+      if (!confirm("File does not have .apkg extension. Continue anyway?")) {
+        return;
+      }
+    }
+
+    if (expectSqlite && !isSqliteFile) {
+      if (
+        !confirm(
+          "File does not have .anki2 or .anki21 extension. Continue anyway?",
+        )
+      ) {
+        return;
+      }
+    }
+
+    // Limit file size to prevent memory issues (100MB max)
+    const maxSize = 100 * 1024 * 1024; // 100MB
+    if (f.size > maxSize) {
+      showError("File is too large. Maximum size is 100MB.");
+      return;
+    }
+
+    const reader = new FileReader();
         if ("function" in event.data) {
       reader.onload = function (e) {
         try {
@@ -1262,16 +1317,18 @@ function readySetup() {
         }
       };
         } else {
-            reader.onload = function(e) { ankiBinaryToTable(e.target.result, setOptionsImageLoad()); };
+      reader.onload = function (e) {
+        try {
+          ankiBinaryToTable(e.target.result, setOptionsImageLoad());
+        } catch (err) {
+          showError("Error processing file: " + err.message);
+          console.error(err);
         }
-        /* // If the callback doesn't need the File object, just use the above.
-        reader.onload = (function(theFile) {
-            return function(e) {
-                console.log(theFile.name);
-                ankiBinaryToTable(e.target.result);
+      };
+    }
+    reader.onerror = function () {
+      showError("Error reading file.");
             };
-        })(f);
-        */
         reader.readAsArrayBuffer(f);
     };
 
@@ -1293,6 +1350,15 @@ function readySetup() {
         .change({
                   "function" :
                       function(data) {
+const limitValue = $("input#sqliteLimit").val();
+        const limitNum = parseInt(limitValue);
+        // Validate that the limit is a valid positive integer
+        if (isNaN(limitNum) || limitNum <= 0) {
+          showError(
+            "Please enter a valid positive number for the review limit.",
+          );
+          return;
+        }
                           ankiSQLToRevlogTable(data, {
                               limit : parseInt($('input#sqliteLimit').val()),
                               recent : $('input#sqliteRecent').is(':checked')
