@@ -1,6 +1,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://ajax.googleapis.com https://d3js.org 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://cors-anywhere.herokuapp.com https:; worker-src 'self';">
     <title>Fuzzy-Anki</title>
 
     <link rel="stylesheet" type="text/css" href="apkg.css">
@@ -21,7 +22,7 @@
 <body>
 
     <h1 class="heading">Fuzzy-Anki Deck Browser</h1>
-    <h2 class="heading">Turn your web browser into an <a href="http://ankisrs.net">Anki</a> browser!</h2>
+    <h2 class="heading">Turn your web browser into an <a href="https://ankisrs.net">Anki</a> browser!</h2>
 
     <div id="fileSelector">
     <h3>Browse notes and facts</h3>
