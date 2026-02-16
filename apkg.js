@@ -50,13 +50,13 @@ function sqlToTable(uInt8ArraySQLdb) {
 
     // Decks table (for deck names)
     decks = db.exec("SELECT decks FROM col");
-    // Could use parseJSON from jQuery here.
-    decks = Function('return ' + decks[0].values[0][0])();
+    // Using JSON.parse for security (prevents code injection)
+    decks = JSON.parse(decks[0].values[0][0]);
 
     // Models table (for field names)
     col = db.exec("SELECT models FROM col");
-    // Could use parseJSON from jQuery here.
-    var models = Function('return ' + col[0].values[0][0])();
+    // Using JSON.parse for security (prevents code injection)
+    var models = JSON.parse(col[0].values[0][0]);
 
     // Notes table, for raw facts that make up individual cards
     deckNotes = db.exec("SELECT mid,flds FROM notes");
