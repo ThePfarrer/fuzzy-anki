@@ -1,5 +1,9 @@
-var GLOBAL_CORS_PROXY = "http://cors-anywhere.herokuapp.com/";
-var ankiSeparator = '\x1f';
+// Import modules
+import { ANK_SEPARATOR, GLOBAL_CORS_PROXY } from './modules/constants.js';
+import { arrayNamesToObj, updateNestedObj, summer, mean } from './modules/utils.js';
+
+// For backward compatibility within this file
+const ankiSeparator = ANK_SEPARATOR;
 
 // deckNotes contains the contents of any APKG decks uploaded. It is an array of
 // objects with the following properties:
@@ -306,11 +310,19 @@ function ankiBinaryToTable(ankiArray, options) {
     }
 }
 
+/**
+ * Fetches and loads an Anki deck from a URL using Fetch API
+ * Supports CORS proxy for cross-origin URLs with privacy warning
+ * @param {string} ankiURL - URL of the APKG file to download
+ * @param {Object} options - Configuration options { loadImage: boolean }
+ * @param {boolean} useCorsProxy - Whether to route through CORS proxy
+ * @param {string} corsProxyURL - CORS proxy URL (defaults to GLOBAL_CORS_PROXY)
+ */
 function ankiURLToTable(ankiURL, options, useCorsProxy, corsProxyURL) {
-    if (typeof useCorsProxy === 'undefined') {
+  if (typeof useCorsProxy === "undefined") {
         useCorsProxy = false;
     }
-    if (typeof corsProxyURL === 'undefined') {
+  if (typeof corsProxyURL === "undefined") {
         corsProxyURL = GLOBAL_CORS_PROXY;
     }
 
@@ -376,8 +388,14 @@ function displayRevlogOutputOptions() {
             });
             return {modelID : mid, fieldNames : fs};
         });
-        config = arrayNamesToObj(_.pluck(config, "modelID"),
-                                 _.pluck(config, "fieldNames"));
+      config = arrayNamesToObj(
+        config.map(function (entry) {
+          return entry.modelID;
+        }),
+        config.map(function (entry) {
+          return entry.fieldNames;
+        }),
+      );
 
         revlogVisualizeProgress(config, getSelectedDeckIDs());
     });
@@ -562,32 +580,32 @@ function ankiSQLToRevlogTable(array, options) {
 
     // The deck name is in decks, and the field names are in models
     // which are JSON, and have to be handled outside SQL.
-    var allModelsDecks = sqlite.exec('SELECT models,decks FROM col')[0].values[0];
-    allModels = $.parseJSON(allModelsDecks[0]);
-    allDecks = $.parseJSON(allModelsDecks[1]);
+  const allModelsDecks = sqlite.exec("SELECT models,decks FROM col")[0].values[0];
+  allModels = JSON.parse(allModelsDecks[0]);
+  allDecks = JSON.parse(allModelsDecks[1]);
 
     // The reviews
-    var query =
-        'SELECT revlog.id, revlog.ease, revlog.ivl, revlog.lastIvl, revlog.time, notes.flds, notes.sfld, cards.id, cards.reps, cards.lapses, cards.did, notes.mid, cards.ord \
+  const query =
+    "SELECT revlog.id, revlog.ease, revlog.ivl, revlog.lastIvl, revlog.time, notes.flds, notes.sfld, cards.id, cards.reps, cards.lapses, cards.did, notes.mid, cards.ord \
 FROM revlog \
 LEFT OUTER JOIN cards ON revlog.cid=cards.id \
 LEFT OUTER JOIN notes ON cards.nid=notes.id \
-ORDER BY revlog.id' +
+ORDER BY revlog.id" +
         (options.recent ? " DESC " : "") +
         (options.limit && options.limit > 0 ? " LIMIT " + options.limit : "");
-    var queryResultNames =
+  const queryResultNames =
         "revId,ease,interval,lastInterval,timeToAnswer,noteFacts,noteSortKeyFact,cardId,reps,lapses,deckId,\
-modelId,templateNum".split(',');
+modelId,templateNum".split(",");
 
     // Run the query and convert the resulting array of arrays into an array of
     // objects
     revlogTable = sqlite.exec(query)[0].values;
 
-    var unknownDeckString = "unknown deck";
-    var unknownNoteString = "unknown note facts";
-    var unknownModelString = "unknown model";
+  const unknownDeckString = "unknown deck";
+  const unknownNoteString = "unknown note facts";
+  const unknownModelString = "unknown model";
     // TODO add "Date of first review" field
-    revlogTable = revlogTable.map(function(rev) {
+  revlogTable = revlogTable.map(function (rev) {
         // First, convert this review from an array to an object
         rev = arrayNamesToObj(queryResultNames, rev);
 
@@ -595,17 +613,18 @@ modelId,templateNum".split(',');
         rev.deckName = rev.deckId ? allDecks[rev.deckId].name : unknownDeckString;
 
         // Convert facts string to a fact object
-        var fieldNames =
-            rev.modelId
-                ? allModels[rev.modelId].flds.map(function(f) { return f.name; })
+    const fieldNames = rev.modelId
+      ? allModels[rev.modelId].flds.map(function (f) {
+          return f.name;
+        })
                 : null;
-        rev.noteFacts =
-            rev.noteFacts ? arrayNamesToObj(fieldNames,
-                                            rev.noteFacts.split(ankiSeparator))
+    rev.noteFacts = rev.noteFacts
+      ? arrayNamesToObj(fieldNames, rev.noteFacts.split(ankiSeparator))
                           : unknownNoteString;
         // Add model name
-        rev.modelName =
-            rev.modelId ? allModels[rev.modelId].name : unknownModelString;
+    rev.modelName = rev.modelId
+      ? allModels[rev.modelId].name
+      : unknownModelString;
         // delete rev.modelId;
 
         // Decks need to know what models are in them. decksReviewed is an
@@ -621,7 +640,8 @@ modelId,templateNum".split(',');
         rev.dateString = rev.date.toString();
 
         // Add a JSON representation of facts
-        rev.noteFactsJSON = typeof rev.noteFacts === "object"
+    rev.noteFactsJSON =
+      typeof rev.noteFacts === "object"
                                 ? JSON.stringify(rev.noteFacts)
                                 : unknownNoteString;
 
@@ -643,7 +663,7 @@ LEFT OUTER JOIN notes ON cards.nid=notes.id")[0].values;
         return mid[0] ? allModels[mid[0]].name : unknownModelString;
     });
     modelIdToName =
-        arrayNamesToObj(modelIDsReviewed.map(_.first), modelsReviewed);
+      arrayNamesToObj(modelIDsReviewed.map(function (pair) { return pair[0]; }), modelsReviewed);
 
     var deckIDsReviewed = sqlite.exec(
                                      "SELECT DISTINCT cards.did \
@@ -652,7 +672,7 @@ LEFT OUTER JOIN cards ON revlog.cid=cards.id")[0].values;
     decksReviewed = deckIDsReviewed.map(function(did) {
         return did[0] ? allDecks[did[0]].name : unknownDeckString;
     });
-    deckIdToName = arrayNamesToObj(deckIDsReviewed.map(_.first), decksReviewed);
+    deckIdToName = arrayNamesToObj(deckIDsReviewed.map(function (pair) { return pair[0]; }), decksReviewed);
     */
 
     // Create div for results
