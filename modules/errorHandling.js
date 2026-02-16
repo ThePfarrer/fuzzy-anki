@@ -83,3 +83,41 @@ export function validateURL(url) {
     return false;
   }
 }
+
+/**
+ * Validates file extension and prompts user if incorrect
+ * @param {File} file - File object to validate
+ * @param {Array<string>} expectedExtensions - Array of valid extensions (e.g., ['.apkg'])
+ * @param {string} fileType - Human-readable file type description
+ * @returns {boolean} True if validation passes or user confirms
+ */
+export function validateFileExtension(file, expectedExtensions, fileType) {
+  const fileName = file.name.toLowerCase();
+  const hasValidExtension = expectedExtensions.some((ext) =>
+    fileName.endsWith(ext),
+  );
+
+  if (!hasValidExtension) {
+    const extensionList = expectedExtensions.join(" or ");
+    return confirm(
+      `File does not have ${extensionList} extension. Continue anyway?`,
+    );
+  }
+
+  return true;
+}
+
+/**
+ * Validates file size
+ * @param {File} file - File object to validate
+ * @param {number} maxSizeMB - Maximum file size in megabytes
+ * @returns {boolean} True if file size is acceptable
+ */
+export function validateFileSize(file, maxSizeMB = 100) {
+  const maxSize = maxSizeMB * 1024 * 1024;
+  if (file.size > maxSize) {
+    showError(`File is too large. Maximum size is ${maxSizeMB}MB.`);
+    return false;
+  }
+  return true;
+}

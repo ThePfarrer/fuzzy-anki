@@ -1,24 +1,30 @@
 // Import modules
+import {
+  createHistogram,
+  createScatterPlot,
+  createTimeSeriesChart,
+} from "./modules/chartHelpers.js";
 import { ANK_SEPARATOR, GLOBAL_CORS_PROXY } from "./modules/constants.js";
 import {
-  cleanupDeckData as cleanupDeckDataModule,
-  processDeckData,
-} from "./modules/deckProcessing.js";
+  arrToCSV,
+  generateReviewsCSV as generateReviewsCSVModule,
+} from "./modules/csvExport.js";
+import { processDeckData } from "./modules/deckProcessing.js";
 import {
   showError,
+  validateFileExtension,
+  validateFileSize,
   validateSqliteHeader,
   validateURL,
   validateZipHeader,
 } from "./modules/errorHandling.js";
-import { arrayNamesToObj, updateNestedObj } from "./modules/utils.js";
 import {
-  fixInput,
-  getColumns,
-  convertToCsv,
-  convert,
-  arrToCSV,
-  generateReviewsCSV as generateReviewsCSVModule,
-} from "./modules/csvExport.js";
+  createButton,
+  createChartContainer,
+  createCheckbox,
+  createSafeFileReaderHandler,
+} from "./modules/uiHelpers.js";
+import { arrayNamesToObj, updateNestedObj } from "./modules/utils.js";
 
 // For backward compatibility within this file
 const ankiSeparator = ANK_SEPARATOR;
@@ -333,26 +339,21 @@ function displayRevlogOutputOptions() {
     .attr("id", "reviews-options-list");
   const tooMuch = 101;
   if (revlogTable.length > tooMuch) {
-    ul.append("li")
-      .attr("id", "tabulate-request")
-      .append("button")
-      .text(
-        "Tabulate " +
-          revlogTable.length +
-          " review" +
-          (revlogTable.length > 1 ? "s" : ""),
-      )
-      .on("click", function () {
+    createButton(
+      ul,
+      "tabulate-request",
+      "Tabulate " +
+        revlogTable.length +
+        " review" +
+        (revlogTable.length > 1 ? "s" : ""),
+      function () {
         tabulateReviews();
-      });
+      },
+    );
 
-    ul.append("li")
-      .attr("id", "export-request")
-      .append("button")
-      .text("Generate CSV spreadsheet")
-      .on("click", function () {
-        generateReviewsCSV();
-      });
+    createButton(ul, "export-request", "Generate CSV spreadsheet", function () {
+      generateReviewsCSV();
+    });
   } else {
     tabulateReviews();
     generateReviewsCSV();
@@ -360,32 +361,29 @@ function displayRevlogOutputOptions() {
 
   const viz = ul.append("li").attr("id", "viz-options");
 
-  viz
-    .append("button")
-    .text("Visualize performance")
-    .on("click", function () {
-      const selectedFields = d3
-        .selectAll("#viz-models-list > li.viz-model")
-        .selectAll("input:checked");
-      let config = selectedFields.map(function (mod) {
-        const mid = /[0-9]+/.exec(mod.parentNode.id)[0];
-        const fs = mod.map(function (sub) {
-          const fnum = /field-([0-9]+)/.exec(sub.id)[1];
-          return allModels[mid].flds[fnum].name;
-        });
-        return { modelID: mid, fieldNames: fs };
+  createButton(viz, "viz-run", "Visualize performance", function () {
+    const selectedFields = d3
+      .selectAll("#viz-models-list > li.viz-model")
+      .selectAll("input:checked");
+    let config = selectedFields.map(function (mod) {
+      const mid = /[0-9]+/.exec(mod.parentNode.id)[0];
+      const fs = mod.map(function (sub) {
+        const fnum = /field-([0-9]+)/.exec(sub.id)[1];
+        return allModels[mid].flds[fnum].name;
       });
-      config = arrayNamesToObj(
-        config.map(function (entry) {
-          return entry.modelID;
-        }),
-        config.map(function (entry) {
-          return entry.fieldNames;
-        }),
-      );
-
-      revlogVisualizeProgress(config, getSelectedDeckIDs());
+      return { modelID: mid, fieldNames: fs };
     });
+    config = arrayNamesToObj(
+      config.map(function (entry) {
+        return entry.modelID;
+      }),
+      config.map(function (entry) {
+        return entry.fieldNames;
+      }),
+    );
+
+    revlogVisualizeProgress(config, getSelectedDeckIDs());
+  });
 
   const vizDecks = viz
     .append("ul")
@@ -418,20 +416,12 @@ function displayRevlogOutputOptions() {
     .append("li");
 
   vizDecksList.each(function (d) {
-    const label = d3
-      .select(this)
-      .append("label")
-      .attr("for", "viz-deck-" + d);
-
-    label
-      .append("input")
-      .attr("type", "checkbox")
-      .attr("checked", true)
-      .attr("id", "viz-deck-" + d);
-
-    label
-      .append("text")
-      .text(" " + (d !== "null" ? allDecks[d].name : "Unknown deck"));
+    const label = createCheckbox(
+      d3.select(this),
+      "viz-deck-" + d,
+      d !== "null" ? allDecks[d].name : "Unknown deck",
+      true,
+    );
 
     const thisModels = Object.keys(decksReviewed[d])
       .map(function (mid) {
@@ -547,33 +537,12 @@ function updateModelChoices() {
     .classed("viz-field-span", true);
 
   vizFields.each(function (d) {
-    const label = d3
-      .select(this)
-      .append("label")
-      .attr("for", "viz-model-" + d.modelId + "-field-" + d.idx);
-
-    label
-      .append("input")
-      .attr("type", "checkbox")
-      .attr("id", "viz-model-" + d.modelId + "-field-" + d.idx);
-
-    label.append("text").text(" " + d.name + (d.idx + 1 < d.total ? ", " : ""));
+    const label = createCheckbox(
+      d3.select(this),
+      "viz-model-" + d.modelId + "-field-" + d.idx,
+      d.name + (d.idx + 1 < d.total ? ", " : ""),
+    );
   });
-}
-
-/**
- * Creates a CSV download link from data
- * @param {Array<Object>} dataArray - Data rows
- * @param {Array<string>} fieldsArray - Column names
- * @param {string} linkText - Link label
- * @param {Object} d3SelectionToAppend - D3 selection to append link to
- * @returns {Object} D3 selection for the link
- */
-function arrToCSV(dataArray, fieldsArray, linkText, d3SelectionToAppend) {
-  const csv = convert(dataArray, fieldsArray);
-  const blob = new Blob([csv], { type: "data:text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  return d3SelectionToAppend.append("a").attr("href", url).text(linkText);
 }
 
 /**
@@ -834,40 +803,32 @@ function revlogVisualizeProgress(configModelsFacts, deckIDsWanted) {
   // details about each card. Sibling cards are currently treated as different
   // cards: TODO: allow user to select treating them as the same card.
 
-  function appendC3Div(heading, text, id) {
-    const newdiv = d3.select("#reviews").append("div");
-    newdiv.append("h4").text(heading);
-    newdiv.append("p").text(text);
-    newdiv.append("div").attr("id", id);
-    // d3.select("#reviews").append('div').attr("id", id);
-  }
-
-  appendC3Div(
+  // Create chart containers
+  createChartContainer(
+    d3.select("#reviews"),
     "Performance since acquisition",
-    "Number of lapses since \
-card learned. Drag to pan, and mouse-weel to zoom.",
+    "Number of lapses since card learned. Drag to pan, and mouse-weel to zoom.",
     "scatter-norm-rep-lapse",
   );
 
-  appendC3Div(
+  createChartContainer(
+    d3.select("#reviews"),
     "Performance histogram",
-    "Histogram of per-card performance, where ease of 1 is \
-failure and all other eases are success.",
+    "Histogram of per-card performance, where ease of 1 is failure and all other eases are success.",
     "histogram",
   );
 
-  appendC3Div(
+  createChartContainer(
+    d3.select("#reviews"),
     "Calendar view of acquisition",
-    "Time series showing when cards were learned. \
-Large circles indicate perfect performance, smaller circles indicate poorer \
-performance. Zoomable and pannable.",
+    "Time series showing when cards were learned. Large circles indicate perfect performance, smaller circles indicate poorer performance. Zoomable and pannable.",
     "chart",
   );
 
-  appendC3Div(
+  createChartContainer(
+    d3.select("#reviews"),
     "Scatter plot of lapses versus reps",
-    "Lapses and reps are correlated with poor \
-performance, so this scatter plot cannot be easily used for analysis.",
+    "Lapses and reps are correlated with poor performance, so this scatter plot cannot be easily used for analysis.",
     "scatter-rep-lapse",
   );
 
@@ -883,30 +844,18 @@ performance, so this scatter plot cannot be easily used for analysis.",
   chartArr.unshift(["date", "card index"]);
 
   // Invoke the c3js method
-  c3.generate({
-    bindto: "#chart",
-    data: {
-      x: "date",
-      rows: chartArr,
-      onmouseover: function (d) {
-        $(".c3-circle-" + d.index).css({
-          "stroke-width": 5,
-        });
-      },
-      onmouseout: function (d) {
-        $(".c3-circle-" + d.index).css({
-          "stroke-width": 1,
-        });
-      },
+  createTimeSeriesChart("#chart", chartArr, {
+    yLabel: "Card index",
+    xLabel: "Date",
+    onmouseover: function (d) {
+      $(".c3-circle-" + d.index).css({
+        "stroke-width": 5,
+      });
     },
-    axis: {
-      y: { label: { text: "Card index" } },
-      x: {
-        type: "timeseries",
-        label: { text: "Date" },
-        tick: { rotate: 15, count: 50, format: "%Y-%m-%d %I:%M" },
-        height: 40,
-      },
+    onmouseout: function (d) {
+      $(".c3-circle-" + d.index).css({
+        "stroke-width": 1,
+      });
     },
     tooltip: {
       format: {
@@ -929,14 +878,6 @@ performance, so this scatter plot cannot be easily used for analysis.",
         },
       },
     },
-    legend: { show: false },
-    zoom: {
-      enabled: true,
-      extent: [1, 2],
-    }, // default is [1,10] doesn't provide enough zoooooom
-    point: {
-      focus: { expand: { enabled: false } },
-    }, // don't expand a point on focus
   });
 
   // Make the radius and opacity of each data circle depend on the pass rate
@@ -1017,17 +958,10 @@ performance, so this scatter plot cannot be easily used for analysis.",
     return [bar.x, bar.y];
   });
   chartHistData.unshift(["x", "frequency"]);
-  c3.generate({
-    bindto: "#histogram",
-    data: { x: "x", rows: chartHistData, type: "bar" },
-    bar: { width: { ratio: 0.95 } },
-    axis: {
-      y: { label: { text: "Number of cards" } },
-      x: {
-        label: { text: "Pass rate" },
-        tick: { format: d3.format(".2p") },
-      },
-    },
+  createHistogram("#histogram", chartHistData, {
+    yLabel: "Number of cards",
+    xLabel: "Pass rate",
+    xTick: { format: d3.format(".2p") },
     tooltip: {
       format: {
         value: function (value) {
@@ -1040,7 +974,6 @@ performance, so this scatter plot cannot be easily used for analysis.",
         },
       },
     },
-    legend: { show: false },
   });
 
   //-----------------
@@ -1053,17 +986,10 @@ performance, so this scatter plot cannot be easily used for analysis.",
     return [revDb[key].lapses + unitRandom(), revDb[key].reps + unitRandom()];
   });
   lapsesReps.unshift(["lapses", "reps"]);
-  c3.generate({
-    bindto: "#scatter-rep-lapse",
-    data: { x: "reps", rows: lapsesReps, type: "scatter" },
-    axis: {
-      x: {
-        label: { text: "# reps, integer with jitter" },
-        tick: { fit: false },
-      },
-      y: { label: { text: "# lapses, integer with jitter" } },
-    },
-    legend: { show: false },
+  createScatterPlot("#scatter-rep-lapse", lapsesReps, {
+    xColumn: "reps",
+    xLabel: "# reps, integer with jitter",
+    yLabel: "# lapses, integer with jitter",
   });
 
   //-----------
@@ -1091,17 +1017,11 @@ performance, so this scatter plot cannot be easily used for analysis.",
     }
     */ /*data --> columns : lapsesTimesTranspose*/
 
-  c3.generate({
-    bindto: "#scatter-norm-rep-lapse",
-    data: { x: "daysKnown", rows: lapsesTime, type: "scatter" },
-    axis: {
-      x: {
-        label: { text: "days known, with jitter" },
-        tick: { fit: false },
-      },
-      y: { label: { text: "# lapses, with jitter" } },
-    },
-    legend: { show: false },
+  createScatterPlot("#scatter-norm-rep-lapse", lapsesTime, {
+    xColumn: "daysKnown",
+    xLabel: "days known, with jitter",
+    yLabel: "# lapses, with jitter",
+    enableZoom: true,
     tooltip: {
       contents: function (d, defaultTitleFormat, defaultValueFormat, color) {
         const key = jitteredTimeToCard[d[0].x];
@@ -1135,14 +1055,12 @@ performance, so this scatter plot cannot be easily used for analysis.",
         },
       },
     },
-    zoom: { enabled: true, extent: [1, 2] },
   });
 }
 
 // Lifted from
 // https://github.com/matteofigus/nice-json2csv/blob/master/lib/nice-json2csv.js
 // (MIT License)
-
 
 $(document).ready(function () {
   initSqlJs({ locateFile: (filename) => filename }).then(function (localSQL) {
@@ -1173,57 +1091,36 @@ function readySetup() {
     }
 
     // Validate file type based on context
-    const fileName = f.name.toLowerCase();
-    const isApkgFile = fileName.endsWith(".apkg");
-    const isSqliteFile =
-      fileName.endsWith(".anki2") || fileName.endsWith(".anki21");
-
-    // Check if we're expecting APKG or SQLite based on the event source
     const expectApkg = event.target.id === "ankiFile";
     const expectSqlite = event.target.id === "sqliteFile";
 
-    if (expectApkg && !isApkgFile) {
-      if (!confirm("File does not have .apkg extension. Continue anyway?")) {
+    if (expectApkg) {
+      if (!validateFileExtension(f, [".apkg"], "APKG")) {
         return;
       }
     }
 
-    if (expectSqlite && !isSqliteFile) {
-      if (
-        !confirm(
-          "File does not have .anki2 or .anki21 extension. Continue anyway?",
-        )
-      ) {
+    if (expectSqlite) {
+      if (!validateFileExtension(f, [".anki2", ".anki21"], "SQLite")) {
         return;
       }
     }
 
-    // Limit file size to prevent memory issues (100MB max)
-    const maxSize = 100 * 1024 * 1024; // 100MB
-    if (f.size > maxSize) {
-      showError("File is too large. Maximum size is 100MB.");
+    // Validate file size
+    if (!validateFileSize(f)) {
       return;
     }
 
     const reader = new FileReader();
     if ("function" in event.data) {
-      reader.onload = function (e) {
-        try {
-          event.data.function(e.target.result);
-        } catch (err) {
-          showError("Error processing file: " + err.message);
-          console.error(err);
-        }
-      };
+      reader.onload = createSafeFileReaderHandler(
+        event.data.function,
+        showError,
+      );
     } else {
-      reader.onload = function (e) {
-        try {
-          ankiBinaryToTable(e.target.result, setOptionsImageLoad());
-        } catch (err) {
-          showError("Error processing file: " + err.message);
-          console.error(err);
-        }
-      };
+      reader.onload = createSafeFileReaderHandler(function (data) {
+        ankiBinaryToTable(data, setOptionsImageLoad());
+      }, showError);
     }
     reader.onerror = function () {
       showError("Error reading file.");
