@@ -54,6 +54,45 @@ padding: 0.5em 1em;
     vertical-align: middle;
 }
 
+/* Deck hierarchy styles */
+.deck-details {
+    margin: 12px 0;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #f9f9f9;
+}
+
+.deck-summary {
+    background: #f0f0f0;
+    padding: 12px;
+    border-radius: 4px 4px 0 0;
+    color: #333;
+    font-size: 14px;
+    user-select: none;
+}
+
+.deck-summary:hover {
+    background: #e8e8e8;
+}
+
+.deck-details[open] > .deck-summary {
+    border-bottom: 1px solid #ddd;
+    border-radius: 4px 4px 0 0;
+}
+
+.deck-content {
+    background: #fafafa;
+}
+
+.deck-model-table {
+    margin: 12px 0;
+    overflow-x: auto;
+}
+
+.deck-model-table table {
+    width: 100%;
+}
+
 span.viz-field-span {
     margin-right: 0.5em;
 }

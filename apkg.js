@@ -45,6 +45,168 @@ function tabulate(datatable, columns, containerString) {
     return table;
 }
 
+/**
+ * Builds a deck tree structure from Anki's decks JSON object
+ * @param {Object} decks - Anki's decks JSON object
+ * @returns {Object} Tree structure with deck hierarchy
+ */
+function buildDeckTree(decks) {
+  const tree = {};
+  
+  Object.keys(decks).forEach(function(deckId) {
+    const deck = decks[deckId];
+    if (deck.name) {
+      tree[deckId] = {
+        name: deck.name,
+        id: deckId,
+        parent: deck.mid ? null : (deck.parent || null),
+        children: {},
+        notes: []
+      };
+    }
+  });
+  
+  return tree;
+}
+
+/**
+ * Gets the full path of a deck from the decks JSON
+ * @param {number} deckId - The deck ID to get the path for
+ * @param {Object} decks - Anki's decks JSON object
+ * @returns {Array<string>} Array of deck names from root to this deck
+ */
+function getDeckPath(deckId, decks) {
+  const deck = decks[deckId];
+  
+  if (!deck || !deck.name) {
+    return ['Default'];
+  }
+  
+  // Anki stores deck names with "::" to denote hierarchy
+  // e.g., "Russian::Verbs::PastTense"
+  const path = deck.name.split('::');
+  
+  return path.length > 0 ? path : ['Default'];
+}
+
+/**
+ * Organizes notes by their deck hierarchy
+ * @param {Object} decks - Anki's decks JSON object
+ * @param {Array} notesData - Array of [mid, flds, did] tuples from database
+ * @param {Object} models - Anki's models JSON object
+ * @returns {Object} Notes organized by deck path
+ */
+function organizeNotesByDeck(decks, notesData, models) {
+  const deckHierarchy = {};
+  const ankiSeparator = "\x1f";
+  
+  notesData.forEach(function(noteRow) {
+    const modelId = noteRow[0];
+    const fields = noteRow[1];
+    const deckId = noteRow[2] || 1; // Default to deck ID 1 if not found
+    
+    const deckPath = getDeckPath(deckId, decks);
+    const pathKey = deckPath.join(' > ');
+    
+    if (!deckHierarchy[pathKey]) {
+      deckHierarchy[pathKey] = {
+        path: deckPath,
+        deckId: deckId,
+        notes: []
+      };
+    }
+    
+    if (models[modelId]) {
+      const fieldNames = models[modelId].fields || [];
+      const fieldArray = fields.split(ankiSeparator);
+      const noteObject = arrayNamesToObj(fieldNames, fieldArray);
+      
+      deckHierarchy[pathKey].notes.push({
+        modelId: modelId,
+        modelName: models[modelId].name,
+        fieldNames: fieldNames,
+        data: noteObject
+      });
+    }
+  });
+  
+  return deckHierarchy;
+}
+
+/**
+ * Renders the deck hierarchy as expandable tree sections with note tables
+ * @param {Object} deckHierarchy - Notes organized by deck path
+ * @param {string} containerId - CSS selector for container element
+ */
+function renderDeckTree(deckHierarchy, containerId) {
+  const container = d3.select(containerId);
+  const pathKeys = Object.keys(deckHierarchy).sort();
+  let tableCounter = 0;
+  
+  pathKeys.forEach(function(pathKey) {
+    const deckData = deckHierarchy[pathKey];
+    const path = deckData.path;
+    
+    // Create expandable section for each deck
+    const details = container.append("details")
+      .attr("class", "deck-details")
+      .attr("open", true); // Open by default - can be changed to false
+    
+    const summary = details.append("summary")
+      .attr("class", "deck-summary")
+      .style("cursor", "pointer")
+      .style("font-weight", "bold")
+      .style("padding", "8px");
+    
+    summary.text(path.join(" > "));
+    
+    const deckContent = details.append("div")
+      .attr("class", "deck-content")
+      .style("padding", "8px")
+      .style("border-left", "3px solid #ccc")
+      .style("margin-left", "10px")
+      .style("margin-top", "8px");
+    
+    // Group notes by model within each deck
+    const notesByModel = {};
+    deckData.notes.forEach(function(note) {
+      const modelName = note.modelName;
+      if (!notesByModel[modelName]) {
+        notesByModel[modelName] = {
+          fieldNames: note.fieldNames,
+          notes: []
+        };
+      }
+      notesByModel[modelName].notes.push(note.data);
+    });
+    
+    // Render a table for each model in this deck
+    Object.keys(notesByModel).forEach(function(modelName) {
+      const modelData = notesByModel[modelName];
+      
+      // Add model heading
+      deckContent.append("h4")
+        .style("margin-top", "12px")
+        .style("margin-bottom", "8px")
+        .text(modelName + " (" + modelData.notes.length + " note" + (modelData.notes.length !== 1 ? "s" : "") + ")");
+      
+      // Create table div with unique ID
+      const tableDivId = "deck-table-" + (tableCounter++);
+      const tableDiv = deckContent.append("div")
+        .attr("id", tableDivId)
+        .attr("class", "deck-model-table");
+      
+      // Create table using the tabulate function with CSS selector
+      tabulate(modelData.notes, modelData.fieldNames, "#" + tableDivId);
+    });
+  });
+}
+
+
+/**
+ * Converts SQLite binary data to table format and displays deck contents
+ * @param {Uint8Array} uInt8ArraySQLdb - SQLite database binary data
+ */
 function sqlToTable(uInt8ArraySQLdb) {
     var db = new SQL.Database(uInt8ArraySQLdb);
 
