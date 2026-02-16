@@ -11,6 +11,14 @@ import {
   validateZipHeader,
 } from "./modules/errorHandling.js";
 import { arrayNamesToObj, updateNestedObj } from "./modules/utils.js";
+import {
+  fixInput,
+  getColumns,
+  convertToCsv,
+  convert,
+  arrToCSV,
+  generateReviewsCSV as generateReviewsCSVModule,
+} from "./modules/csvExport.js";
 
 // For backward compatibility within this file
 const ankiSeparator = ANK_SEPARATOR;
@@ -571,18 +579,8 @@ function arrToCSV(dataArray, fieldsArray, linkText, d3SelectionToAppend) {
 /**
  * Generates CSV export link for review data
  */
-/**
- * Creates CSV download for the current review table
- */
 function generateReviewsCSV() {
-  const d3Selection = arrToCSV(
-    revlogTable,
-    "dateString,ease,interval,lastInterval,timeToAnswer,noteSortKeyFact,deckName,modelName,lapses,\
-reps,cardId,noteFactsJSON".split(","),
-    "Download CSV",
-    d3.select("#export-request").append("li").attr("id", "export-completed"),
-  );
-  d3Selection.classed("csv-download", true);
+  generateReviewsCSVModule(revlogTable, d3);
 }
 
 /**
@@ -1144,95 +1142,7 @@ performance, so this scatter plot cannot be easily used for analysis.",
 // Lifted from
 // https://github.com/matteofigus/nice-json2csv/blob/master/lib/nice-json2csv.js
 // (MIT License)
-/**
- * Normalizes CSV input to an array
- * @param {Object|Array} parameter - Data to normalize
- * @returns {Array} Normalized array
- */
-function fixInput(parameter) {
-  if (
-    parameter &&
-    parameter.length == undefined &&
-    Object.keys(parameter).length > 0
-  )
-    parameter = [parameter]; // data is a json object instead of an array
-  // of json objects
 
-  return parameter;
-}
-/**
- * Extracts unique column names from data rows
- * @param {Array<Object>} data - Data rows
- * @returns {Array<string>} Column names
- */
-function getColumns(data) {
-  const columns = [];
-
-  for (let i = 0; i < data.length; i++) {
-    Object.keys(data[i]).forEach(function (key) {
-      if (columns.indexOf(key) === -1) {
-        columns.push(key);
-      }
-    });
-  }
-
-  return columns;
-}
-/**
- * Converts a 2D array into CSV text
- * @param {Array<Array>} data - Rows of data
- * @returns {string} CSV string
- */
-function convertToCsv(data) {
-  return JSON.stringify(data)
-    .replace(/],\[/g, "\n")
-    .replace(/]]/g, "")
-    .replace(/\[\[/g, "")
-    .replace(/\\"/g, '""');
-}
-/**
- * Converts objects to CSV text
- * @param {Array<Object>} data - Data rows
- * @param {Array<string>|string} headers - Headers list or comma string
- * @param {boolean} suppressHeader - Whether to omit header row
- * @returns {string} CSV string
- */
-function convert(data, headers, suppressHeader) {
-  if (typeof suppressHeader !== "boolean") suppressHeader = false;
-
-  data = fixInput(data);
-
-  if (data == null || data.length == 0) {
-    return "";
-  }
-
-  const columns = headers
-    ? typeof headers == "string"
-      ? [headers]
-      : headers
-    : getColumns(data);
-
-  const rows = [];
-
-  if (!suppressHeader) {
-    rows.push(columns);
-  }
-
-  for (let i = 0; i < data.length; i++) {
-    const row = [];
-    columns.forEach(function (column) {
-      const value =
-        (typeof data[i][column] == "object" && data[i][column] && "[Object]") ||
-        (typeof data[i][column] == "number" && String(data[i][column])) ||
-        data[i][column] ||
-        "";
-      row.push(value);
-    });
-    rows.push(row);
-  }
-
-  return convertToCsv(rows);
-}
 
 $(document).ready(function () {
   initSqlJs({ locateFile: (filename) => filename }).then(function (localSQL) {
