@@ -180,11 +180,17 @@ function displayRevlogOutputOptions() {
         ul.append('li')
             .attr("id", "tabulate-request")
             .append("button")
-            .text("Tabulate " + revlogTable.length + " review" +
-                  (revlogTable.length > 1 ? "s" : ""))
-            .on("click", function() { tabulateReviews(); });
+      .text(
+        "Tabulate " +
+          revlogTable.length +
+          " review" +
+          (revlogTable.length > 1 ? "s" : ""),
+      )
+      .on("click", function () {
+        tabulateReviews();
+      });
 
-        ul.append('li')
+    ul.append("li")
             .attr("id", "export-request")
             .append("button")
             .text("Generate CSV spreadsheet")
@@ -233,12 +239,26 @@ function displayRevlogOutputOptions() {
     var vizDecksList = vizDecks.selectAll("li")
                            .data(decksReviewedKeysAlphabetized)
                            .enter()
-                           .append("li")
-                           .append('label')
-                           .attr('for', function(d) { return 'viz-deck-' + d; })
-                           .html(function(d, i) {
-        var thisModels =
-            _.filter(Object.keys(decksReviewed[d]).map(function(mid) {
+    .append("li");
+
+  vizDecksList.each(function (d, i) {
+    var label = d3
+      .select(this)
+      .append("label")
+      .attr("for", "viz-deck-" + d);
+
+    label
+      .append("input")
+      .attr("type", "checkbox")
+      .attr("checked", true)
+      .attr("id", "viz-deck-" + d);
+
+    label
+      .append("text")
+      .text(" " + (d !== "null" ? allDecks[d].name : "Unknown deck"));
+
+    var thisModels = _.filter(
+      Object.keys(decksReviewed[d]).map(function (mid) {
             return d !== "null" ? allModels[mid].name : null;
         }), null);
         return '<input type="checkbox" checked id="viz-deck-' + d + '"> ' +
