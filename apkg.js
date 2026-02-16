@@ -1,28 +1,21 @@
 // Import modules
 import { ANK_SEPARATOR, GLOBAL_CORS_PROXY } from "./modules/constants.js";
 import {
+  cleanupDeckData as cleanupDeckDataModule,
+  processDeckData,
+} from "./modules/deckProcessing.js";
+import {
   showError,
   validateSqliteHeader,
   validateURL,
   validateZipHeader,
 } from "./modules/errorHandling.js";
 import { arrayNamesToObj, updateNestedObj } from "./modules/utils.js";
-import {
-  processDeckData,
-  getDeckNotes,
-  cleanupDeckData as cleanupDeckDataModule,
-} from "./modules/deckProcessing.js";
 
 // For backward compatibility within this file
 const ankiSeparator = ANK_SEPARATOR;
 
 // Memory cleanup functions
-function cleanupDeckData() {
-  cleanupDeckDataModule();
-  // Keep global deckNotes for backward compatibility
-  deckNotes = null;
-}
-
 function cleanupReviewData() {
   // Clear review data to free memory
   revlogTable = null;
@@ -43,18 +36,25 @@ let deckNotes;
 let SQL;
 
 // Huge props to http://stackoverflow.com/a/9507713/500207
+/**
+ * Creates an HTML table from data and appends it to a specified container
+ * @param {Array<Object>} datatable - Array of objects representing table rows
+ * @param {Array<string>} columns - Column names to display
+ * @param {string} containerString - CSS selector for the container element
+ * @returns {Object} D3 selection of the created table
+ */
 function tabulate(datatable, columns, containerString) {
   const table = d3.select(containerString).append("table");
   const thead = table.append("thead");
   const tbody = table.append("tbody");
 
-    // append the header row
+  // append the header row
   thead
     .append("tr")
-        .selectAll("th")
-        .data(columns)
-        .enter()
-        .append("th")
+    .selectAll("th")
+    .data(columns)
+    .enter()
+    .append("th")
     .text(function (column) {
       return column;
     })
@@ -62,27 +62,27 @@ function tabulate(datatable, columns, containerString) {
       return "field-" + d.replace(" ", "-");
     });
 
-    // create a row for each object in the data
+  // create a row for each object in the data
   const rows = tbody.selectAll("tr").data(datatable).enter().append("tr");
 
-    // create a cell in each row for each column
+  // create a cell in each row for each column
   rows
     .selectAll("td")
     .data(function (row) {
       return columns.map(function (column) {
         return { column: column, value: row[column] };
-                             });
-                         })
-                    .enter()
-                    .append("td")
+      });
+    })
+    .enter()
+    .append("td")
     .text(function (d) {
       return d.value;
     })
     .attr("class", function (d) {
       return "field-" + d.column.replace(" ", "-");
-                    });
+    });
 
-    return table;
+  return table;
 }
 
 /**
@@ -94,48 +94,51 @@ function renderDeckTree(deckHierarchy, containerId) {
   const container = d3.select(containerId);
   const pathKeys = Object.keys(deckHierarchy).sort();
   let tableCounter = 0;
-  
-  pathKeys.forEach(function(pathKey) {
+
+  pathKeys.forEach(function (pathKey) {
     const deckData = deckHierarchy[pathKey];
     const path = deckData.path;
-    
+
     // Create expandable section for each deck
-    const details = container.append("details")
+    const details = container
+      .append("details")
       .attr("class", "deck-details")
       .attr("open", true); // Open by default - can be changed to false
-    
-    const summary = details.append("summary")
+
+    const summary = details
+      .append("summary")
       .attr("class", "deck-summary")
       .style("cursor", "pointer")
       .style("font-weight", "bold")
       .style("padding", "8px");
-    
+
     summary.text(path.join(" > "));
-    
-    const deckContent = details.append("div")
+
+    const deckContent = details
+      .append("div")
       .attr("class", "deck-content")
       .style("padding", "8px")
       .style("border-left", "3px solid #ccc")
       .style("margin-left", "10px")
       .style("margin-top", "8px");
-    
+
     // Group notes by model within each deck
     const notesByModel = {};
-    deckData.notes.forEach(function(note) {
+    deckData.notes.forEach(function (note) {
       const modelName = note.modelName;
       if (!notesByModel[modelName]) {
         notesByModel[modelName] = {
           fieldNames: note.fieldNames,
-          notes: []
+          notes: [],
         };
       }
       notesByModel[modelName].notes.push(note.data);
     });
-    
+
     // Render a table for each model in this deck
-    Object.keys(notesByModel).forEach(function(modelName) {
+    Object.keys(notesByModel).forEach(function (modelName) {
       const modelData = notesByModel[modelName];
-      
+
       // Add model heading
       deckContent
         .append("h4")
@@ -149,14 +152,14 @@ function renderDeckTree(deckHierarchy, containerId) {
             (modelData.notes.length !== 1 ? "s" : "") +
             ")",
         );
-      
+
       // Create table div with unique ID
       const tableDivId = "deck-table-" + tableCounter++;
       const tableDiv = deckContent
         .append("div")
         .attr("id", tableDivId)
         .attr("class", "deck-model-table");
-      
+
       // Create table using the tabulate function with CSS selector
       tabulate(modelData.notes, modelData.fieldNames, "#" + tableDivId);
     });
@@ -171,8 +174,8 @@ function sqlToTable(uInt8ArraySQLdb) {
   const deckData = processDeckData(uInt8ArraySQLdb, SQL);
   deckNotes = deckData.deckNotes;
 
-    // Visualize!
-    if (0 == specialDisplayHandlers()) {
+  // Visualize!
+  if (0 == specialDisplayHandlers()) {
     renderDeckTree(deckData.deckHierarchy, "#anki");
   }
 }
@@ -186,19 +189,19 @@ function sqlToTable(uInt8ArraySQLdb) {
 function parseImages(imageTable, unzip, filenames) {
   const map = {};
   for (const prop in imageTable) {
-      if (filenames.indexOf(prop) >= 0) {
+    if (filenames.indexOf(prop) >= 0) {
       const file = unzip.decompress(prop);
       map[imageTable[prop]] = converterEngine(file);
-      }
     }
+  }
   d3.selectAll("img").attr("src", function () {
-        //Some filenames may be encoded. Decode them beforehand.
+    //Some filenames may be encoded. Decode them beforehand.
     const key = decodeURI(this.src.split("/").pop());
     if (key in map) {
       return "data:image/png;base64," + map[key];
-        }
-          return this.src;
-      });
+    }
+    return this.src;
+  });
 }
 
 /**
@@ -212,11 +215,11 @@ function converterEngine(input) {
   const uInt8Array = new Uint8Array(input);
   let i = uInt8Array.length;
   const biStr = []; //new Array(i);
-    while (i--) {
-        biStr[i] = String.fromCharCode(uInt8Array[i]);
-    }
+  while (i--) {
+    biStr[i] = String.fromCharCode(uInt8Array[i]);
+  }
   const base64 = window.btoa(biStr.join(""));
-    return base64;
+  return base64;
 }
 
 /**
@@ -239,21 +242,21 @@ function ankiBinaryToTable(ankiArray, options) {
   const filenames = unzip.getFilenames();
   const anki21Exists = filenames.indexOf("collection.anki21") >= 0;
   const sqliteFile = anki21Exists ? "collection.anki21" : "collection.anki2";
-    if (filenames.indexOf(sqliteFile) >= 0) {
+  if (filenames.indexOf(sqliteFile) >= 0) {
     const plain = unzip.decompress(sqliteFile);
-        sqlToTable(plain);
+    sqlToTable(plain);
     if (options && options.loadImage) {
-          if (filenames.indexOf("media") >= 0) {
+      if (filenames.indexOf("media") >= 0) {
         const plainmedia = unzip.decompress("media");
         const bb = new Blob([new Uint8Array(plainmedia)]);
         const f = new FileReader();
         f.onload = function (e) {
           parseImages(JSON.parse(e.target.result), unzip, filenames);
-              };
-              f.readAsText(bb);
-          }
-        }
+        };
+        f.readAsText(bb);
+      }
     }
+  }
 }
 
 /**
@@ -266,11 +269,11 @@ function ankiBinaryToTable(ankiArray, options) {
  */
 function ankiURLToTable(ankiURL, options, useCorsProxy, corsProxyURL) {
   if (typeof useCorsProxy === "undefined") {
-        useCorsProxy = false;
-    }
+    useCorsProxy = false;
+  }
   if (typeof corsProxyURL === "undefined") {
-        corsProxyURL = GLOBAL_CORS_PROXY;
-    }
+    corsProxyURL = GLOBAL_CORS_PROXY;
+  }
 
   // Validate URL before proceeding
   if (!validateURL(ankiURL)) {
@@ -314,17 +317,17 @@ function ankiURLToTable(ankiURL, options, useCorsProxy, corsProxyURL) {
 function displayRevlogOutputOptions() {
   const ul = d3
     .select("body")
-                 .append("div")
-                 .attr("id", "reviews")
-                 .append("div")
-                 .attr("id", "reviews-options")
-                 .append("ul")
-                 .attr("id", "reviews-options-list");
+    .append("div")
+    .attr("id", "reviews")
+    .append("div")
+    .attr("id", "reviews-options")
+    .append("ul")
+    .attr("id", "reviews-options-list");
   const tooMuch = 101;
-    if (revlogTable.length > tooMuch) {
+  if (revlogTable.length > tooMuch) {
     ul.append("li")
-            .attr("id", "tabulate-request")
-            .append("button")
+      .attr("id", "tabulate-request")
+      .append("button")
       .text(
         "Tabulate " +
           revlogTable.length +
@@ -336,16 +339,16 @@ function displayRevlogOutputOptions() {
       });
 
     ul.append("li")
-            .attr("id", "export-request")
-            .append("button")
-            .text("Generate CSV spreadsheet")
+      .attr("id", "export-request")
+      .append("button")
+      .text("Generate CSV spreadsheet")
       .on("click", function () {
         generateReviewsCSV();
       });
-    } else {
-        tabulateReviews();
-        generateReviewsCSV();
-    }
+  } else {
+    tabulateReviews();
+    generateReviewsCSV();
+  }
 
   const viz = ul.append("li").attr("id", "viz-options");
 
@@ -355,15 +358,15 @@ function displayRevlogOutputOptions() {
     .on("click", function () {
       const selectedFields = d3
         .selectAll("#viz-models-list > li.viz-model")
-                                 .selectAll("input:checked");
+        .selectAll("input:checked");
       let config = selectedFields.map(function (mod) {
         const mid = /[0-9]+/.exec(mod.parentNode.id)[0];
         const fs = mod.map(function (sub) {
           const fnum = /field-([0-9]+)/.exec(sub.id)[1];
-                return allModels[mid].flds[fnum].name;
-            });
-        return { modelID: mid, fieldNames: fs };
+          return allModels[mid].flds[fnum].name;
         });
+        return { modelID: mid, fieldNames: fs };
+      });
       config = arrayNamesToObj(
         config.map(function (entry) {
           return entry.modelID;
@@ -373,7 +376,7 @@ function displayRevlogOutputOptions() {
         }),
       );
 
-        revlogVisualizeProgress(config, getSelectedDeckIDs());
+      revlogVisualizeProgress(config, getSelectedDeckIDs());
     });
 
   const vizDecks = viz
@@ -387,10 +390,10 @@ function displayRevlogOutputOptions() {
     .append("li")
     .text("Select fields for each model to display in plots")
     .append("ul")
-                        .attr("id", "viz-models-list");
+    .attr("id", "viz-models-list");
 
-    // Data: elements of decksReviewed (which are {deck IDs -> object})
-    // TODO: enable visualization of unknown decks: .data(Object.keys(decksReviewed))
+  // Data: elements of decksReviewed (which are {deck IDs -> object})
+  // TODO: enable visualization of unknown decks: .data(Object.keys(decksReviewed))
   const decksReviewedKeysAlphabetized = Object.keys(decksReviewed)
     .filter(function (did) {
       return did !== "null";
@@ -402,8 +405,8 @@ function displayRevlogOutputOptions() {
     });
   const vizDecksList = vizDecks
     .selectAll("li")
-                           .data(decksReviewedKeysAlphabetized)
-                           .enter()
+    .data(decksReviewedKeysAlphabetized)
+    .enter()
     .append("li");
 
   vizDecksList.each(function (d) {
@@ -424,7 +427,7 @@ function displayRevlogOutputOptions() {
 
     const thisModels = Object.keys(decksReviewed[d])
       .map(function (mid) {
-            return d !== "null" ? allModels[mid].name : null;
+        return d !== "null" ? allModels[mid].name : null;
       })
       .filter(function (value) {
         return value;
@@ -435,36 +438,43 @@ function displayRevlogOutputOptions() {
         .append("text")
         .text(
           " (contains model" +
-                          (thisModels.length > 1 ? "s " : " ") +
+            (thisModels.length > 1 ? "s " : " ") +
             thisModels.join(", ") +
             ")",
         );
     }
-    });
+  });
 
   $("#viz-deck-null").attr("checked", false);
 
   $("#viz-decks-list input:checkbox").click(function () {
     updateModelChoices();
   });
-    updateModelChoices();
+  updateModelChoices();
 }
 
+/**
+ * Reads selected deck IDs from the UI
+ * @returns {Array<string|null>} Selected deck IDs
+ */
 function getSelectedDeckIDs() {
   const selectedDecks = $("#viz-decks-list input:checked")
     .map(function () {
       return this.id;
     })
     .get();
-    // In case the above is too fancy across browsers, this is equivalent:
-    // `$.map($('#viz-decks-list input:checked'), function(x){return x.id;})`
+  // In case the above is too fancy across browsers, this is equivalent:
+  // `$.map($('#viz-decks-list input:checked'), function(x){return x.id;})`
 
   const selectedDeckIDs = selectedDecks.map(function (id) {
-        return id !== "viz-deck-null" ? /[0-9]+/.exec(id)[0] : null;
-    });
-    return selectedDeckIDs;
+    return id !== "viz-deck-null" ? /[0-9]+/.exec(id)[0] : null;
+  });
+  return selectedDeckIDs;
 }
 
+/**
+ * Updates model choices based on selected decks
+ */
 function updateModelChoices() {
   const selectedDeckIDs = getSelectedDeckIDs();
 
@@ -472,7 +482,7 @@ function updateModelChoices() {
     new Set(
       selectedDeckIDs
         .map(function (did) {
-        return decksReviewed[did];
+          return decksReviewed[did];
         })
         .filter(function (val) {
           return val;
@@ -489,21 +499,21 @@ function updateModelChoices() {
     .data(modelIDs, function (mid) {
       return mid;
     });
-    // For an explanation of the CSS class 'viz-model' see
-    // http://stackoverflow.com/a/25599142/500207
+  // For an explanation of the CSS class 'viz-model' see
+  // http://stackoverflow.com/a/25599142/500207
 
-    modelsData.exit().remove();
+  modelsData.exit().remove();
 
   const vizModelsList = modelsData
     .enter()
-            .append("li")
+    .append("li")
     .attr("id", function (mid) {
       return "viz-model-" + mid;
     })
     .text(function (mid) {
       return mid !== "null" ? allModels[mid].name : "Unknown model";
-                 })
-            /*.on("click", function(mid) {
+    })
+    /*.on("click", function(mid) {
                 $('#viz-model-' + mid + '-list').slideToggle();
             })*/
     .classed("viz-model", true)
@@ -513,30 +523,44 @@ function updateModelChoices() {
   const vizFields = vizModelsList
     .selectAll("span")
     .data(function (d) {
-                     return d !== "null"
+      return d !== "null"
         ? allModels[d].flds.map(function (field, idx) {
-                                          return {
+            return {
               name: field.name,
               modelId: d,
               total: allModels[d].flds.length,
               idx: idx,
-                                          };
+            };
           })
-                                : [];
-                 })
-            .enter()
-            .append("span")
-            .classed("viz-field-span", true)
-            .append("label")
-            .attr("for", function(d, i) {
-                return 'viz-model-' + d.modelId + '-field-' + i;
-            })
-            .html(function(d, i) {
-        return '<input type="checkbox" id="viz-model-' + d.modelId + '-field-' +
-               i + '"> ' + d.name + (i + 1 < d.total ? ', ' : "");
-    });
+        : [];
+    })
+    .enter()
+    .append("span")
+    .classed("viz-field-span", true);
+
+  vizFields.each(function (d) {
+    const label = d3
+      .select(this)
+      .append("label")
+      .attr("for", "viz-model-" + d.modelId + "-field-" + d.idx);
+
+    label
+      .append("input")
+      .attr("type", "checkbox")
+      .attr("id", "viz-model-" + d.modelId + "-field-" + d.idx);
+
+    label.append("text").text(" " + d.name + (d.idx + 1 < d.total ? ", " : ""));
+  });
 }
 
+/**
+ * Creates a CSV download link from data
+ * @param {Array<Object>} dataArray - Data rows
+ * @param {Array<string>} fieldsArray - Column names
+ * @param {string} linkText - Link label
+ * @param {Object} d3SelectionToAppend - D3 selection to append link to
+ * @returns {Object} D3 selection for the link
+ */
 function arrToCSV(dataArray, fieldsArray, linkText, d3SelectionToAppend) {
   const csv = convert(dataArray, fieldsArray);
   const blob = new Blob([csv], { type: "data:text/csv;charset=utf-8" });
@@ -544,10 +568,16 @@ function arrToCSV(dataArray, fieldsArray, linkText, d3SelectionToAppend) {
   return d3SelectionToAppend.append("a").attr("href", url).text(linkText);
 }
 
+/**
+ * Generates CSV export link for review data
+ */
+/**
+ * Creates CSV download for the current review table
+ */
 function generateReviewsCSV() {
   const d3Selection = arrToCSV(
-        revlogTable,
-        "dateString,ease,interval,lastInterval,timeToAnswer,noteSortKeyFact,deckName,modelName,lapses,\
+    revlogTable,
+    "dateString,ease,interval,lastInterval,timeToAnswer,noteSortKeyFact,deckName,modelName,lapses,\
 reps,cardId,noteFactsJSON".split(","),
     "Download CSV",
     d3.select("#export-request").append("li").attr("id", "export-completed"),
@@ -555,11 +585,16 @@ reps,cardId,noteFactsJSON".split(","),
   d3Selection.classed("csv-download", true);
 }
 
+/**
+ * Renders review table in the DOM
+ */
 function tabulateReviews() {
-    tabulate(revlogTable,
-             "date,ease,interval,lastInterval,timeToAnswer,noteSortKeyFact,deckName,modelName,lapses,\
-reps,cardId,noteFactsJSON".split(','),
-             "div#reviews");
+  tabulate(
+    revlogTable,
+    "date,ease,interval,lastInterval,timeToAnswer,noteSortKeyFact,deckName,modelName,lapses,\
+reps,cardId,noteFactsJSON".split(","),
+    "div#reviews",
+  );
 }
 
 let sqliteGlobal;
@@ -578,7 +613,7 @@ let allModels;
 function ankiSQLToRevlogTable(array, options) {
   if (typeof options === "undefined") {
     options = { limit: 100, recent: true };
-    }
+  }
 
   // Validate SQLite header before processing
   if (!validateSqliteHeader(array)) {
@@ -590,83 +625,83 @@ function ankiSQLToRevlogTable(array, options) {
 
   const sqliteBinary = new Uint8Array(array);
   const sqlite = new SQL.Database(sqliteBinary);
-    sqliteGlobal = sqlite;
+  sqliteGlobal = sqlite;
 
-    // The deck name is in decks, and the field names are in models
-    // which are JSON, and have to be handled outside SQL.
+  // The deck name is in decks, and the field names are in models
+  // which are JSON, and have to be handled outside SQL.
   const allModelsDecks = sqlite.exec("SELECT models,decks FROM col")[0]
     .values[0];
   allModels = JSON.parse(allModelsDecks[0]);
   allDecks = JSON.parse(allModelsDecks[1]);
 
-    // The reviews
+  // The reviews
   const query =
     "SELECT revlog.id, revlog.ease, revlog.ivl, revlog.lastIvl, revlog.time, notes.flds, notes.sfld, cards.id, cards.reps, cards.lapses, cards.did, notes.mid, cards.ord \
 FROM revlog \
 LEFT OUTER JOIN cards ON revlog.cid=cards.id \
 LEFT OUTER JOIN notes ON cards.nid=notes.id \
 ORDER BY revlog.id" +
-        (options.recent ? " DESC " : "") +
-        (options.limit && options.limit > 0 ? " LIMIT " + options.limit : "");
+    (options.recent ? " DESC " : "") +
+    (options.limit && options.limit > 0 ? " LIMIT " + options.limit : "");
   const queryResultNames =
-        "revId,ease,interval,lastInterval,timeToAnswer,noteFacts,noteSortKeyFact,cardId,reps,lapses,deckId,\
+    "revId,ease,interval,lastInterval,timeToAnswer,noteFacts,noteSortKeyFact,cardId,reps,lapses,deckId,\
 modelId,templateNum".split(",");
 
-    // Run the query and convert the resulting array of arrays into an array of
-    // objects
-    revlogTable = sqlite.exec(query)[0].values;
+  // Run the query and convert the resulting array of arrays into an array of
+  // objects
+  revlogTable = sqlite.exec(query)[0].values;
 
   const unknownDeckString = "unknown deck";
   const unknownNoteString = "unknown note facts";
   const unknownModelString = "unknown model";
-    // TODO add "Date of first review" field
+  // TODO add "Date of first review" field
   revlogTable = revlogTable.map(function (rev) {
-        // First, convert this review from an array to an object
-        rev = arrayNamesToObj(queryResultNames, rev);
+    // First, convert this review from an array to an object
+    rev = arrayNamesToObj(queryResultNames, rev);
 
-        // Add deck name
-        rev.deckName = rev.deckId ? allDecks[rev.deckId].name : unknownDeckString;
+    // Add deck name
+    rev.deckName = rev.deckId ? allDecks[rev.deckId].name : unknownDeckString;
 
-        // Convert facts string to a fact object
+    // Convert facts string to a fact object
     const fieldNames = rev.modelId
       ? allModels[rev.modelId].flds.map(function (f) {
           return f.name;
         })
-                : null;
+      : null;
     rev.noteFacts = rev.noteFacts
       ? arrayNamesToObj(fieldNames, rev.noteFacts.split(ankiSeparator))
-                          : unknownNoteString;
-        // Add model name
+      : unknownNoteString;
+    // Add model name
     rev.modelName = rev.modelId
       ? allModels[rev.modelId].name
       : unknownModelString;
-        // delete rev.modelId;
+    // delete rev.modelId;
 
-        // Decks need to know what models are in them. decksReviewed is an
-        // object of objects: what matters are the keys, at both levels, not the
-        // values. TODO can this be done faster in SQL?
-        updateNestedObj(decksReviewed, rev.deckId, rev.modelId, rev.modelName);
-        // But let's also keep track of models in the same way, since we're lazy
-        // FIXME
-        updateNestedObj(modelsReviewed, rev.modelId, rev.deckId, rev.deckName);
+    // Decks need to know what models are in them. decksReviewed is an
+    // object of objects: what matters are the keys, at both levels, not the
+    // values. TODO can this be done faster in SQL?
+    updateNestedObj(decksReviewed, rev.deckId, rev.modelId, rev.modelName);
+    // But let's also keep track of models in the same way, since we're lazy
+    // FIXME
+    updateNestedObj(modelsReviewed, rev.modelId, rev.deckId, rev.deckName);
 
-        // Add review date
-        rev.date = new Date(rev.revId);
-        rev.dateString = rev.date.toString();
+    // Add review date
+    rev.date = new Date(rev.revId);
+    rev.dateString = rev.date.toString();
 
-        // Add a JSON representation of facts
+    // Add a JSON representation of facts
     rev.noteFactsJSON =
       typeof rev.noteFacts === "object"
-                                ? JSON.stringify(rev.noteFacts)
-                                : unknownNoteString;
+        ? JSON.stringify(rev.noteFacts)
+        : unknownNoteString;
 
-        // Switch timeToAnswer from milliseconds to seconds
-        rev.timeToAnswer /= 1000;
+    // Switch timeToAnswer from milliseconds to seconds
+    rev.timeToAnswer /= 1000;
 
-        return rev;
-    });
+    return rev;
+  });
 
-    /*
+  /*
     // decks and models that are only associated with reviews. Will this be
     // faster in sql.js or inside plain Javascript? TODO find out.
     var modelIDsReviewed = sqlite.exec(
@@ -690,27 +725,32 @@ LEFT OUTER JOIN cards ON revlog.cid=cards.id")[0].values;
     deckIdToName = arrayNamesToObj(deckIDsReviewed.map(function (pair) { return pair[0]; }), decksReviewed);
     */
 
-    // Create div for results
-    displayRevlogOutputOptions();
+  // Create div for results
+  displayRevlogOutputOptions();
 }
 
+/**
+ * Reduces review log to a per-card summary for visualization
+ * @param {Array<string|number>} deckIDsWanted - Deck IDs to include
+ * @returns {Object} Reduced review database and index map
+ */
 function reduceRevlogTable(deckIDsWanted) {
   const deckIDs = deckIDsWanted.map(function (i) {
     return parseInt(i);
   });
 
-    // See if revlogTable is sorted ascending or descending by examining the
-    // first two elements.
-    // NB. This will fail if the SQL query isn't sorted by time!
+  // See if revlogTable is sorted ascending or descending by examining the
+  // first two elements.
+  // NB. This will fail if the SQL query isn't sorted by time!
   const oldestFirst = revlogTable[0].date < revlogTable[1].date;
 
-    // We wanted to know whether the oldest came first or last because a key
-    // element of this visualization is the date each note was learned.
+  // We wanted to know whether the oldest came first or last because a key
+  // element of this visualization is the date each note was learned.
 
-    // Build the cardId-indexed array using reduce since it can reduce (left)
-    // or reduceRight. Just accumulate the individual reviews. We don't need to
-    // keep track of dates, or lapses, or total reps since the database gave us
-    // that.
+  // Build the cardId-indexed array using reduce since it can reduce (left)
+  // or reduceRight. Just accumulate the individual reviews. We don't need to
+  // keep track of dates, or lapses, or total reps since the database gave us
+  // that.
   let uniqueKeysSeenSoFar = 0;
   const temporalIndexToCardArray = [];
   let revDb;
@@ -718,45 +758,51 @@ function reduceRevlogTable(deckIDsWanted) {
   const reductionFunction = function (dbSoFar, rev) {
     const key = rev.cardId;
     if (deckIDs && deckIDs.indexOf(rev.deckId) < 0) {
-            return dbSoFar;
-        }
+      return dbSoFar;
+    }
 
-        if (key in dbSoFar) {
-            // Already seen this card ID
-            dbSoFar[key].allRevlogs.push(rev);
-        } else {
-            // Fist time seeing this card ID
-            dbSoFar[key] = {
+    if (key in dbSoFar) {
+      // Already seen this card ID
+      dbSoFar[key].allRevlogs.push(rev);
+    } else {
+      // Fist time seeing this card ID
+      dbSoFar[key] = {
         allRevlogs: [rev],
         reps: rev.reps,
         lapses: rev.lapses,
-                cardId: rev.cardId,
+        cardId: rev.cardId,
         modelId: rev.modelId,
         dateLearned: rev.date,
         noteFacts: rev.noteFacts,
         temporalIndex: uniqueKeysSeenSoFar,
-            };
-            temporalIndexToCardArray[uniqueKeysSeenSoFar] = key;
-            uniqueKeysSeenSoFar++;
-        }
-        return dbSoFar;
-    };
-
-    // We know whether to reduce or reduceRight
-    if (oldestFirst) {
-        revDb = revlogTable.reduce(reductionFunction, {});
-    } else {
-        revDb = revlogTable.reduceRight(reductionFunction, {});
+      };
+      temporalIndexToCardArray[uniqueKeysSeenSoFar] = key;
+      uniqueKeysSeenSoFar++;
     }
+    return dbSoFar;
+  };
 
-    return {
+  // We know whether to reduce or reduceRight
+  if (oldestFirst) {
+    revDb = revlogTable.reduce(reductionFunction, {});
+  } else {
+    revDb = revlogTable.reduceRight(reductionFunction, {});
+  }
+
+  return {
     revDb: revDb,
     temporalIndexToCardArray: temporalIndexToCardArray,
-    };
+  };
 }
 
+/**
+ * Builds a display string for a card based on selected fields
+ * @param {Object} cardObj - Card data object
+ * @param {Object} config - Model/field selection config
+ * @returns {string} Display string
+ */
 function cardAndConfigToString(cardObj, config) {
-    return config[cardObj.modelId].length > 0
+  return config[cardObj.modelId].length > 0
     ? config[cardObj.modelId]
         .map(function (factName) {
           return cardObj.noteFacts[factName];
@@ -773,62 +819,72 @@ let temporalIndexToCardArray;
  * @param {Array<string|number>} deckIDsWanted - Deck IDs to include
  */
 function revlogVisualizeProgress(configModelsFacts, deckIDsWanted) {
-    // This function needs to take, as logical inputs, the decks and models to
-    // limit the visualization to, plus a boolean operation AND or OR to combine
-    // the two, and finally a way to display the pertinent facts about a card so
-    // that cards are better-distinguished than card IDs (a long nunmber).
+  // This function needs to take, as logical inputs, the decks and models to
+  // limit the visualization to, plus a boolean operation AND or OR to combine
+  // the two, and finally a way to display the pertinent facts about a card so
+  // that cards are better-distinguished than card IDs (a long nunmber).
   if (typeof deckIDsWanted === "undefined") {
-        deckIDsWanted = [];
-    }
+    deckIDsWanted = [];
+  }
 
   const reduced = reduceRevlogTable(deckIDsWanted);
   temporalIndexToCardArray = reduced.temporalIndexToCardArray;
   revDb = reduced.revDb;
 
-    // So now we've generated an object indexed by whatever keyFactId was chosen
-    // (and potentially restricted to a deck/model) that tells us performance
-    // details about each card. Sibling cards are currently treated as different
-    // cards: TODO: allow user to select treating them as the same card.
+  // So now we've generated an object indexed by whatever keyFactId was chosen
+  // (and potentially restricted to a deck/model) that tells us performance
+  // details about each card. Sibling cards are currently treated as different
+  // cards: TODO: allow user to select treating them as the same card.
 
-    function appendC3Div(heading, text, id) {
+  function appendC3Div(heading, text, id) {
     const newdiv = d3.select("#reviews").append("div");
-        newdiv.append("h4").text(heading);
+    newdiv.append("h4").text(heading);
     newdiv.append("p").text(text);
     newdiv.append("div").attr("id", id);
-        // d3.select("#reviews").append('div').attr("id", id);
-    }
+    // d3.select("#reviews").append('div').attr("id", id);
+  }
 
-    appendC3Div("Performance since acquisition", "Number of lapses since \
-card learned. Drag to pan, and mouse-weel to zoom.", "scatter-norm-rep-lapse");
+  appendC3Div(
+    "Performance since acquisition",
+    "Number of lapses since \
+card learned. Drag to pan, and mouse-weel to zoom.",
+    "scatter-norm-rep-lapse",
+  );
 
-    appendC3Div("Performance histogram",
-                "Histogram of per-card performance, where ease of 1 is \
+  appendC3Div(
+    "Performance histogram",
+    "Histogram of per-card performance, where ease of 1 is \
 failure and all other eases are success.",
-                "histogram");
+    "histogram",
+  );
 
-    appendC3Div("Calendar view of acquisition",
-                "Time series showing when cards were learned. \
+  appendC3Div(
+    "Calendar view of acquisition",
+    "Time series showing when cards were learned. \
 Large circles indicate perfect performance, smaller circles indicate poorer \
 performance. Zoomable and pannable.",
-                "chart");
+    "chart",
+  );
 
-    appendC3Div("Scatter plot of lapses versus reps",
-                "Lapses and reps are correlated with poor \
+  appendC3Div(
+    "Scatter plot of lapses versus reps",
+    "Lapses and reps are correlated with poor \
 performance, so this scatter plot cannot be easily used for analysis.",
-                "scatter-rep-lapse");
+    "scatter-rep-lapse",
+  );
 
-    //------------------------------------------------------------------------
-    // Pass rate per unique card
-    //------------------------------------------------------------------------
-    // Generate the column-wise array of arrays that c3js wants
+  //------------------------------------------------------------------------
+  // Pass rate per unique card
+  //------------------------------------------------------------------------
+  // Generate the column-wise array of arrays that c3js wants
   const revDbKeys = Object.keys(revDb);
   const chartArr = revDbKeys.map(function (key) {
     const val = revDb[key];
     return [val.dateLearned, 1 + val.temporalIndex];
-    });
-    chartArr.unshift(['date', 'card index']);
+  });
+  chartArr.unshift(["date", "card index"]);
 
-    // Invoke the c3js method
+  // Invoke the c3js method
   c3.generate({
     bindto: "#chart",
     data: {
@@ -837,54 +893,55 @@ performance, so this scatter plot cannot be easily used for analysis.",
       onmouseover: function (d) {
         $(".c3-circle-" + d.index).css({
           "stroke-width": 5,
-                         });
-                     },
-                 onmouseout :
-                     function(d, i) {
-                         $('.c3-circle-' + d.index).css({
-                             "stroke-width": 1
-                         });
-                     }
-               },
-        axis : {
-                 y : {label : {text : "Card index"}},
-                 x : {
-                     type : 'timeseries',
-                     label : {text : "Date"},
-                     tick : {rotate : 15,  count: 50, format : '%Y-%m-%d %I:%M'},
-                     height : 40,
-                 }
-               },
-        tooltip : {
-                    format : {
-                        value : function(value, ratio, id) {
-                            // value: 1-index!
-                            var key = temporalIndexToCardArray[value-1];
-                            var str = cardAndConfigToString(revDb[key],
-                                                            configModelsFacts);
-                            var reps = revDb[key].reps;
-                            var lapses = revDb[key].lapses;
-                            return str +
-                                   " (#" + (value - 1 + 1) + ", " + (reps-lapses) +
-                                   '/' + reps + " reps passed)";
-                        }
-                    }
-                  },
-        legend : {show : false},
-        zoom : {
-                 enabled : true,
-                 extent : [
-                     1,
-                     2
-                 ]
-               },  // default is [1,10] doesn't provide enough zoooooom
-        point : {
-            focus :
-                {expand : {enabled : false}}
-        }  // don't expand a point on focus
-    });
+        });
+      },
+      onmouseout: function (d) {
+        $(".c3-circle-" + d.index).css({
+          "stroke-width": 1,
+        });
+      },
+    },
+    axis: {
+      y: { label: { text: "Card index" } },
+      x: {
+        type: "timeseries",
+        label: { text: "Date" },
+        tick: { rotate: 15, count: 50, format: "%Y-%m-%d %I:%M" },
+        height: 40,
+      },
+    },
+    tooltip: {
+      format: {
+        value: function (value) {
+          // value: 1-index!
+          const key = temporalIndexToCardArray[value - 1];
+          const str = cardAndConfigToString(revDb[key], configModelsFacts);
+          const reps = revDb[key].reps;
+          const lapses = revDb[key].lapses;
+          return (
+            str +
+            " (#" +
+            (value - 1 + 1) +
+            ", " +
+            (reps - lapses) +
+            "/" +
+            reps +
+            " reps passed)"
+          );
+        },
+      },
+    },
+    legend: { show: false },
+    zoom: {
+      enabled: true,
+      extent: [1, 2],
+    }, // default is [1,10] doesn't provide enough zoooooom
+    point: {
+      focus: { expand: { enabled: false } },
+    }, // don't expand a point on focus
+  });
 
-    // Make the radius and opacity of each data circle depend on the pass rate
+  // Make the radius and opacity of each data circle depend on the pass rate
   const grader = function (dbentry) {
     return 1 - dbentry.lapses / dbentry.reps;
   };
@@ -906,13 +963,13 @@ performance, so this scatter plot cannot be easily used for analysis.",
     .domain([worstRate, 1])
     .range([1, 0.05]);
 
-    // The following helps smooth out the diversity of radii and opacities by
-    // putting more slope in the linear scale where there's more mass in the
-    // histogram, so when there's lots of things with about the same value,
-    // they'll have more different radii/opacities than they would otherwise. It
-    // looks good, but it depends on the user's data, and requires some
-    // automatic histogram analysis: TODO.
-    if (false) {
+  // The following helps smooth out the diversity of radii and opacities by
+  // putting more slope in the linear scale where there's more mass in the
+  // histogram, so when there's lots of things with about the same value,
+  // they'll have more different radii/opacities than they would otherwise. It
+  // looks good, but it depends on the user's data, and requires some
+  // automatic histogram analysis: TODO.
+  if (false) {
     let lin = d3.scaleLinear().domain([0, 1]).range(scaleRadius.range());
     scaleRadius = d3
       .scaleLinear()
@@ -923,25 +980,29 @@ performance, so this scatter plot cannot be easily used for analysis.",
       .scaleLinear()
       .domain([worstRate, 0.85, 0.93, 0.96, 1])
       .range([lin(0), lin(0.2), lin(0.8), lin(0.99), lin(1)]);
-    }
+  }
 
   temporalIndexToCardArray.forEach(function (_, idx) {
     const dbentry = revDb[temporalIndexToCardArray[idx]];
     const rate = grader(dbentry);
     d3.select(".c3-circle-" + idx).attr({
       r: scaleRadius(rate),
-            //'fill-opacity' : 0,
-            //'fill' : 'none',
-            'stroke-opacity' : scaleOpacity(rate)
-        });
+      //'fill-opacity' : 0,
+      //'fill' : 'none',
+      "stroke-opacity": scaleOpacity(rate),
     });
-    $('.c3-circle').css({stroke : 'rgb(31,119,180)', fill: "none", "fill-opacity": 0});
+  });
+  $(".c3-circle").css({
+    stroke: "rgb(31,119,180)",
+    fill: "none",
+    "fill-opacity": 0,
+  });
 
-    //------------------------------------------------------------------------
-    // Histogram of pass rates
-    //------------------------------------------------------------------------
-    // High to low, then reverse, to make sure 1.01 and 1 have no roundoff.
-    // Include 1.01 to capture 1 in its own bin
+  //------------------------------------------------------------------------
+  // Histogram of pass rates
+  //------------------------------------------------------------------------
+  // High to low, then reverse, to make sure 1.01 and 1 have no roundoff.
+  // Include 1.01 to capture 1 in its own bin
   const binDistance = 0.01;
   const histEdges = [];
   const histEnd = Math.floor(worstRate * 100) / 100;
@@ -968,23 +1029,25 @@ performance, so this scatter plot cannot be easily used for analysis.",
         label: { text: "Pass rate" },
         tick: { format: d3.format(".2p") },
       },
-               },
-        tooltip : {
-                    format : {
-                        value : function(value, ratio, id) {
-                            return value + ' cards (' +
-                                   d3.format('.3p')(value *
-                                                    normalizeHistToPercent) +
-                                   ' of cards)';
-                        }
-                    }
-                  },
-        legend : {show : false}
-    });
+    },
+    tooltip: {
+      format: {
+        value: function (value) {
+          return (
+            value +
+            " cards (" +
+            d3.format(".3p")(value * normalizeHistToPercent) +
+            " of cards)"
+          );
+        },
+      },
+    },
+    legend: { show: false },
+  });
 
-    //-----------------
-    // Time to failure plots
-    //--------------------
+  //-----------------
+  // Time to failure plots
+  //--------------------
   const unitRandom = function () {
     return (Math.random() - 0.5) * 0.5;
   };
@@ -1001,26 +1064,26 @@ performance, so this scatter plot cannot be easily used for analysis.",
         tick: { fit: false },
       },
       y: { label: { text: "# lapses, integer with jitter" } },
-               },
-        legend : {show : false}
-    });
+    },
+    legend: { show: false },
+  });
 
-    //-----------
-    // Normalized
-    //-----------
+  //-----------
+  // Normalized
+  //-----------
   const current = new Date().getTime();
   const dayDiff = function (initial) {
-        return (current - initial.getTime()) / (1000 * 3600 * 24);
-    };
+    return (current - initial.getTime()) / (1000 * 3600 * 24);
+  };
   const jitteredTimeToCard = {};
   const lapsesTime = temporalIndexToCardArray.map(function (key) {
     const jitteredTime = dayDiff(revDb[key].dateLearned) + unitRandom();
-        jitteredTimeToCard[jitteredTime] = key;
+    jitteredTimeToCard[jitteredTime] = key;
     return [revDb[key].lapses + unitRandom(), jitteredTime];
-    });
+  });
   lapsesTime.unshift(["lapses", "daysKnown"]);
 
-    /*
+  /*
     var lapsesTimesTranspose = [];
     for (var inputCol = 0;inputCol < lapsesTime[0].length; inputCol++) {
         lapsesTimesTranspose[inputCol] = [];
@@ -1037,67 +1100,71 @@ performance, so this scatter plot cannot be easily used for analysis.",
       x: {
         label: { text: "days known, with jitter" },
         tick: { fit: false },
-                     },
-                 y : {label : {text : "# lapses, with jitter"}}
-               },
-        legend : {show : false},
-        tooltip :
-            {
-              contents :
-                  function(d, defaultTitleFormat, defaultValueFormat, color) {
-                      var key = jitteredTimeToCard[d[0].x];
-                      var str = cardAndConfigToString(revDb[key],
-                                                            configModelsFacts);
-                      this.config.tooltip_format_title = function(d) {
-                          return "Known for " + d3.round(d) + " days (" + str +
-                                 ")";
-                      };
-                      this.config.tooltip_format_value =
-                          function(value, ratio, id) {
-                              return d3.round(value) + " (" + str + ")";
-                      };
-                      var retval =
-                          this.getTooltipContent
-                              ? this.getTooltipContent(d, [], [], color)
-                              : '';
-                      return retval;
-                  },
-              format : {
-                  title :
-                      function(d) {
-                          return "Known for " + d3.round(d) + " days";
-                      },
-                  name :
-                      function(id) {
-                          if (id === "lapses") {
-                              return "Lapses";
-                          }
-                          return "Card key";
-                      },
-                  value :
-                      function(value, ratio, id) {
-                          if (id === "lapses") {
-                              return d3.round(value);
-                          }
-                          return temporalIndexToCardArray[value];
-                      }
-              }
-            },
-        zoom : {enabled : true, extent : [ 1, 2 ]}
-    });
+      },
+      y: { label: { text: "# lapses, with jitter" } },
+    },
+    legend: { show: false },
+    tooltip: {
+      contents: function (d, defaultTitleFormat, defaultValueFormat, color) {
+        const key = jitteredTimeToCard[d[0].x];
+        const str = cardAndConfigToString(revDb[key], configModelsFacts);
+        this.config.tooltip_format_title = function (dayValue) {
+          return "Known for " + d3.round(dayValue) + " days (" + str + ")";
+        };
+        this.config.tooltip_format_value = function (value) {
+          return d3.round(value) + " (" + str + ")";
+        };
+        const retval = this.getTooltipContent
+          ? this.getTooltipContent(d, [], [], color)
+          : "";
+        return retval;
+      },
+      format: {
+        title: function (d) {
+          return "Known for " + d3.round(d) + " days";
+        },
+        name: function (id) {
+          if (id === "lapses") {
+            return "Lapses";
+          }
+          return "Card key";
+        },
+        value: function (value, ratio, id) {
+          if (id === "lapses") {
+            return d3.round(value);
+          }
+          return temporalIndexToCardArray[value];
+        },
+      },
+    },
+    zoom: { enabled: true, extent: [1, 2] },
+  });
 }
 
 // Lifted from
 // https://github.com/matteofigus/nice-json2csv/blob/master/lib/nice-json2csv.js
 // (MIT License)
+/**
+ * Normalizes CSV input to an array
+ * @param {Object|Array} parameter - Data to normalize
+ * @returns {Array} Normalized array
+ */
 function fixInput(parameter) {
-    if (parameter && parameter.length == undefined &&
-        _.keys(parameter).length > 0)
-        parameter = [parameter];  // data is a json object instead of an array
-                                  // of json objects
+  if (
+    parameter &&
+    parameter.length == undefined &&
+    Object.keys(parameter).length > 0
+  )
+    parameter = [parameter]; // data is a json object instead of an array
+  // of json objects
 
-    return parameter;
+  return parameter;
 }
+/**
+ * Extracts unique column names from data rows
+ * @param {Array<Object>} data - Data rows
+ * @returns {Array<string>} Column names
+ */
 function getColumns(data) {
   const columns = [];
 
@@ -1109,35 +1176,47 @@ function getColumns(data) {
     });
   }
 
-    return columns;
+  return columns;
 }
+/**
+ * Converts a 2D array into CSV text
+ * @param {Array<Array>} data - Rows of data
+ * @returns {string} CSV string
+ */
 function convertToCsv(data) {
-    return JSON.stringify(data)
-        .replace(/],\[/g, '\n')
-        .replace(/]]/g, '')
-        .replace(/\[\[/g, '')
-        .replace(/\\"/g, '""');
+  return JSON.stringify(data)
+    .replace(/],\[/g, "\n")
+    .replace(/]]/g, "")
+    .replace(/\[\[/g, "")
+    .replace(/\\"/g, '""');
 }
+/**
+ * Converts objects to CSV text
+ * @param {Array<Object>} data - Data rows
+ * @param {Array<string>|string} headers - Headers list or comma string
+ * @param {boolean} suppressHeader - Whether to omit header row
+ * @returns {string} CSV string
+ */
 function convert(data, headers, suppressHeader) {
-    if (!_.isBoolean(suppressHeader)) suppressHeader = false;
+  if (typeof suppressHeader !== "boolean") suppressHeader = false;
 
-    data = fixInput(data);
+  data = fixInput(data);
 
-    if (data == null || data.length == 0) {
-        return "";
-    }
+  if (data == null || data.length == 0) {
+    return "";
+  }
 
   const columns = headers
     ? typeof headers == "string"
       ? [headers]
       : headers
-                          : getColumns(data);
+    : getColumns(data);
 
   const rows = [];
 
-    if (!suppressHeader) {
-        rows.push(columns);
-    }
+  if (!suppressHeader) {
+    rows.push(columns);
+  }
 
   for (let i = 0; i < data.length; i++) {
     const row = [];
@@ -1147,34 +1226,37 @@ function convert(data, headers, suppressHeader) {
         (typeof data[i][column] == "number" && String(data[i][column])) ||
         data[i][column] ||
         "";
-            row.push(value);
-        });
-        rows.push(row);
-    }
+      row.push(value);
+    });
+    rows.push(row);
+  }
 
-    return convertToCsv(rows);
+  return convertToCsv(rows);
 }
 
-$(document).ready(function() {
-    initSqlJs({locateFile: filename => filename}).then(function(localSQL){
-        SQL = localSQL;
-        readySetup();
-    });
+$(document).ready(function () {
+  initSqlJs({ locateFile: (filename) => filename }).then(function (localSQL) {
+    SQL = localSQL;
+    readySetup();
+  });
 });
+/**
+ * Registers UI handlers once SQL.js is ready
+ */
 function readySetup() {
   const options = {};
   const setOptionsImageLoad = function () {
     options.loadImage = $("input#showImage").is(":checked");
-        return options;
+    return options;
   };
   const eventHandleToTable = function (event) {
-        event.stopPropagation();
-        event.preventDefault();
+    event.stopPropagation();
+    event.preventDefault();
     let f = event.target.files[0];
-        if (!f) {
-            f = event.dataTransfer.files[0];
-        }
-        
+    if (!f) {
+      f = event.dataTransfer.files[0];
+    }
+
     if (!f) {
       showError("No file selected.");
       return;
@@ -1214,7 +1296,7 @@ function readySetup() {
     }
 
     const reader = new FileReader();
-        if ("function" in event.data) {
+    if ("function" in event.data) {
       reader.onload = function (e) {
         try {
           event.data.function(e.target.result);
@@ -1223,7 +1305,7 @@ function readySetup() {
           console.error(err);
         }
       };
-        } else {
+    } else {
       reader.onload = function (e) {
         try {
           ankiBinaryToTable(e.target.result, setOptionsImageLoad());
@@ -1235,29 +1317,29 @@ function readySetup() {
     }
     reader.onerror = function () {
       showError("Error reading file.");
-            };
-        reader.readAsArrayBuffer(f);
     };
+    reader.readAsArrayBuffer(f);
+  };
 
-    // Deck browser
-    $("#ankiFile")
-        .change({
-                  "function" :
-                      function(data) {
-                          ankiBinaryToTable(data, setOptionsImageLoad());
-                      }
-                }, eventHandleToTable);
-    $("#ankiURLSubmit").click(function(event) {
-        ankiURLToTable($("#ankiURL").val(), setOptionsImageLoad(), true);
-        $("#ankiURL").val('');
-    });
+  // Deck browser
+  $("#ankiFile").change(
+    {
+      function: function (data) {
+        ankiBinaryToTable(data, setOptionsImageLoad());
+      },
+    },
+    eventHandleToTable,
+  );
+  $("#ankiURLSubmit").click(function () {
+    ankiURLToTable($("#ankiURL").val(), setOptionsImageLoad(), true);
+    $("#ankiURL").val("");
+  });
 
-    // Review browser
-    $("#sqliteFile")
-        .change({
-                  "function" :
-                      function(data) {
-const limitValue = $("input#sqliteLimit").val();
+  // Review browser
+  $("#sqliteFile").change(
+    {
+      function: function (data) {
+        const limitValue = $("input#sqliteLimit").val();
         const limitNum = parseInt(limitValue);
         // Validate that the limit is a valid positive integer
         if (isNaN(limitNum) || limitNum <= 0) {
@@ -1266,267 +1348,290 @@ const limitValue = $("input#sqliteLimit").val();
           );
           return;
         }
-                          ankiSQLToRevlogTable(data, {
-                              limit : parseInt($('input#sqliteLimit').val()),
-                              recent : $('input#sqliteRecent').is(':checked')
-                          });
-                      },
-                },
-                eventHandleToTable);
-
-    // Only for local development
-    // ankiURLToTable('/n.apkg');
-};
+        ankiSQLToRevlogTable(data, {
+          limit: limitNum,
+          recent: $("input#sqliteRecent").is(":checked"),
+        });
+      },
+    },
+    eventHandleToTable,
+  );
+}
 
 /**
-* Hook that modifies Nayr's Japanese Core5000 Anki deck
-* (see https://ankiweb.net/shared/info/631662071)
-*
-* @param {Array} deckNotes - array of Anki Notes from the above deck
-* @param {String[]} deckFields - names of the fields of the Notes
-* @return {Array} an updated version of deckNotes
-*
-* Each Note object containing properties Expression, Meaning, Reading, English
-* Translation, Word, Frequency Order, and Sound.
-*
-* Kana in the "Reading" field will be changed from "[kana]" to being wrapped in
-*<span> tags. And each of the items in the "Word" field, which contains the
-*Japanese word, its reading in roumaji (Latin characters), one or more
-*parts-of-speech, and English translations, will be encased in <span> tags
-*(ideally these would be their own independent fields, but some rows have more
-*than one part-of-speech).
-*/
+ * Hook that modifies Nayr's Japanese Core5000 Anki deck
+ * (see https://ankiweb.net/shared/info/631662071)
+ *
+ * @param {Array} deckNotes - array of Anki Notes from the above deck
+ * @param {String[]} deckFields - names of the fields of the Notes
+ * @return {Array} an updated version of deckNotes
+ *
+ * Each Note object containing properties Expression, Meaning, Reading, English
+ * Translation, Word, Frequency Order, and Sound.
+ *
+ * Kana in the "Reading" field will be changed from "[kana]" to being wrapped in
+ *<span> tags. And each of the items in the "Word" field, which contains the
+ *Japanese word, its reading in roumaji (Latin characters), one or more
+ *parts-of-speech, and English translations, will be encased in <span> tags
+ *(ideally these would be their own independent fields, but some rows have more
+ *than one part-of-speech).
+ */
 function core5000Modify(deckNotes, deckFields, deckName) {
-    d3.select("body").append("div").attr("id", "core5000");
-    d3.select("#core5000").append("h2").text(deckName);
-    var divForLink = d3.select("#core5000").append("p");
+  d3.select("body").append("div").attr("id", "core5000");
+  d3.select("#core5000").append("h2").text(deckName);
+  const divForLink = d3.select("#core5000").append("p");
 
-    //------------------------------------------------------------
-    // Variables and functions to help deal with the "Word" column
-    //------------------------------------------------------------
-    // Parts of speech abbreviations
-    var abbreviations =
-        "adn.,adv.,aux.,conj.,cp.,i-adj.,interj.,n.,na-adj.,num.,p.,p. \
-case,p. conj.,p. disc.,pron.,v.,suffix,prefix".split(',');
-    var abbreviationsOr = abbreviations.join("|").replace(/\./g, '\\.');
+  //------------------------------------------------------------
+  // Variables and functions to help deal with the "Word" column
+  //------------------------------------------------------------
+  // Parts of speech abbreviations
+  const abbreviations =
+    "adn.,adv.,aux.,conj.,cp.,i-adj.,interj.,n.,na-adj.,num.,p.,p. \
+case,p. conj.,p. disc.,pron.,v.,suffix,prefix".split(",");
+  const abbreviationsOr = abbreviations.join("|").replace(/\./g, "\\.");
 
-    // The basic structure of the "Word" column is:
-    //
-    // 1. some kanji or kana, plus other random things like commas, parentheses,
-    // both ascii and full-width.
-    // 2. Some roumaji
-    // 3. One or more parts of speech, using the above abbreviations
-    // 4. English translations.
-    //
-    // The following three strings will be the regexps that match #1--#3.
-    // They've been carefully chosen to work with wrinkles in the database,
-    // e.g., more than one of the above four-step sequences in a single row,
-    // multiple adjacent parts-of-speech, or multiple
-    // part-of-speech-and-translation pairs. All these strings intended to
-    // become regexps will go through XRegExp, which expands out the
-    // Han/Katakana/Hiragana groups.
-    var kanaKanjiWordRegexp = '([^a-z]+)';
-    var romajiRegexp = '([a-z\\s,\\-()’]+)';
-    var partOfSpeechRegexp = '((?: |,|' + abbreviationsOr + ')+)';
+  // The basic structure of the "Word" column is:
+  //
+  // 1. some kanji or kana, plus other random things like commas, parentheses,
+  // both ascii and full-width.
+  // 2. Some roumaji
+  // 3. One or more parts of speech, using the above abbreviations
+  // 4. English translations.
+  //
+  // The following three strings will be the regexps that match #1--#3.
+  // They've been carefully chosen to work with wrinkles in the database,
+  // e.g., more than one of the above four-step sequences in a single row,
+  // multiple adjacent parts-of-speech, or multiple
+  // part-of-speech-and-translation pairs. All these strings intended to
+  // become regexps will go through XRegExp, which expands out the
+  // Han/Katakana/Hiragana groups.
+  const kanaKanjiWordRegexp = "([^a-z]+)";
+  const romajiRegexp = "([a-z\\s,\\-()’]+)";
+  const partOfSpeechRegexp = "((?: |,|" + abbreviationsOr + ")+)";
 
-    // Break up a string containing one {kanji/kana + roumaji + part-of-speech +
-    // translations} sequence. The critical idea in this function is to split
-    // the input string between part-of-speech-abbreviations, and do some
-    // processing on that to handle two edge cases:
-    //
-    // 1. "いろいろ iroiro adv., na-adj. various" <-- more than one adjacent
-    //     part-of-speech abbreviation separated by a comma
-    // 2. "余り amari adv. the rest n. (not) much" <-- more than one
-    //     part-of-speech/translation pairs.
-    //
-    // It handles both these cases by splitting the string into an array along
-    // (and including) part-of-speech-abbreviation boundaries. To handle edge
-    // case 1 above, it finds elements of the resulting array that are
-    // between part-of-speech abbreviations but which are
-    // whitespace/punctuation, and merges those elements into a single
-    // "part-of-speech" element.
-    //
-    // Then it builds an array of parts-of-speech and a matching array of
-    // translations. This handles case 2 above. These two arrays, as well as the
-    // kanji/kana and roumaji, are returned as an object.
-    function bar(seqString) {
-        // How much hackier can we get :)
-        if (0 ==
-            seqString.localeCompare(
-                "（お）姉さん(o)-nee-san n. elder sister")) {
-            // Add space between Japanese and reading
-            seqString = "（お）姉さん (o)-nee-san n. elder sister";
-        } else if (0 ==
-                   seqString.localeCompare(
-                       "相変わらず ai-kawara zu adv as ever, as usual, the \
-same, as before [always]")) {
-            // Add dot to "adv", completing the abbreviation instead of adding
-            // another abbreviation which might trigger elsewhere
-            seqString =
-                "相変わらず ai-kawara zu adv. as ever, as usual, the same, as \
+  // Break up a string containing one {kanji/kana + roumaji + part-of-speech +
+  // translations} sequence. The critical idea in this function is to split
+  // the input string between part-of-speech-abbreviations, and do some
+  // processing on that to handle two edge cases:
+  //
+  // 1. "いろいろ iroiro adv., na-adj. various" <-- more than one adjacent
+  //     part-of-speech abbreviation separated by a comma
+  // 2. "余り amari adv. the rest n. (not) much" <-- more than one
+  //     part-of-speech/translation pairs.
+  //
+  // It handles both these cases by splitting the string into an array along
+  // (and including) part-of-speech-abbreviation boundaries. To handle edge
+  // case 1 above, it finds elements of the resulting array that are
+  // between part-of-speech abbreviations but which are
+  // whitespace/punctuation, and merges those elements into a single
+  // "part-of-speech" element.
+  //
+  // Then it builds an array of parts-of-speech and a matching array of
+  // translations. This handles case 2 above. These two arrays, as well as the
+  // kanji/kana and roumaji, are returned as an object.
+  function bar(seqString) {
+    // How much hackier can we get :)
+    if (
+      0 == seqString.localeCompare("（お）姉さん(o)-nee-san n. elder sister")
+    ) {
+      // Add space between Japanese and reading
+      seqString = "（お）姉さん (o)-nee-san n. elder sister";
+    } else if (
+      0 ==
+      seqString.localeCompare(
+        "相変わらず ai-kawara zu adv as ever, as usual, the \
+same, as before [always]",
+      )
+    ) {
+      // Add dot to "adv", completing the abbreviation instead of adding
+      // another abbreviation which might trigger elsewhere
+      seqString =
+        "相変わらず ai-kawara zu adv. as ever, as usual, the same, as \
 before [always]";
-        } else if (0 == seqString.localeCompare("ごと-goto suffix every")) {
-            seqString = "ごと goto suffix every";
-        } else if (0 == seqString.localeCompare("家 uchi n house, home")) {
-            seqString = "家 uchi n. house, home";
-        }
-
-        var arr = seqString.split(XRegExp('(' + abbreviationsOr + ')'));
-
-        var isAbbreviation = arr.map(
-            function(x) { return abbreviations.indexOf(x) >= 0 ? 1 : 0; });
-        var isWhitePunctuation =
-            arr.map(function(x) { return x.match(/^[\s,]*$/) ? 1 : 0; });
-        var isAbbrOrWhitePunct = isAbbreviation.map(
-            function(x, i) { return x + isWhitePunctuation[i]; });
-
-        // combineJunk will find [..., "adv.", ",", "na-adj.", ...] and splice
-        // it into [..., "adv., na-adj.", ...].
-        var tmp = combineJunk(isAbbrOrWhitePunct, arr);
-        arr = tmp.data_array;
-        isAbbrOrWhitePunct = tmp.indicator_array;
-        // Updated arr and isAbbrOrWhitePunct. We need the latter to build the
-        // return object.
-
-        // Part-of-speech array and translation array, which will go itno the
-        // return object. We rely on each part-of-speech element in arr to be
-        // followed by a translation. So far, this happens.
-        var pos = [];
-        var translation = [];
-        arr.map(function(x, i) {
-            if (isAbbrOrWhitePunct[i]) {
-                pos.push(x);
-                translation.push(arr[i + 1]);
-            }
-        });
-
-        // Grab the initial kanji/kana as well as the roumaji. String.match()
-        // will return a three-element array here: the total match, and the two
-        // groups corresponding to the two regexps.
-        var kanaKanjiMatch =
-            seqString.match(XRegExp(kanaKanjiWordRegexp + ' ' + romajiRegexp +
-                                    ' ' + partOfSpeechRegexp));
-
-        if (0==seqString.localeCompare("Oa oobii n. OB (old boy), alumnus")) {
-            return {
-                pos : pos,
-                translation : translation,
-                word : "OB",
-                romaji : "oobii"
-            };
-        }
-        return {
-            pos : pos,
-            translation : translation,
-            word : kanaKanjiMatch[1],
-            romaji : kanaKanjiMatch[2]
-        };
-    };
-
-    function combineJunk(indicator_array, data_array) {
-        var i = 1;
-        while (i < indicator_array.length) {
-            if (indicator_array[i] == indicator_array[i - 1] &&
-                indicator_array[i] > 0) {
-                indicator_array.splice(i - 1, 2, 1);
-                data_array.splice(i - 1, 2, data_array[i - 1] + data_array[i]);
-            } else {
-                i++;
-            }
-        }
-        return {data_array : data_array, indicator_array : indicator_array};
+    } else if (0 == seqString.localeCompare("ごと-goto suffix every")) {
+      seqString = "ごと goto suffix every";
+    } else if (0 == seqString.localeCompare("家 uchi n house, home")) {
+      seqString = "家 uchi n. house, home";
     }
 
-    // Get rid of &nbsp; and such. It'll mess up my regexping.
-    function decodeHtml(html) {
-        var txt = document.createElement("textarea");
-        txt.innerHTML = html;
-        return txt.value;
-    }
+    let arr = seqString.split(XRegExp("(" + abbreviationsOr + ")"));
 
-    var wordColumnReplace = function(s) {
-        if (s.search("&") >= 0) {
-            s = decodeHtml(s);
-        }
-
-        var arr = s.split("<div>");
-
-        return arr.map(function(s) {
-            var decomp = bar(s);
-            var posTrans = decomp.pos.map(function(pos, i) {
-                return '<span class="part-of-speech">' + pos +
-                       '</span> <span class="target-words-meaning">' +
-                       decomp.translation[i] + '</span>';
-            }).join(" ");
-            return '<span class="target-words">' + decomp.word +
-                   '</span> <span class="target-words-romaji">' +
-                   decomp.romaji + "</span> " + posTrans;
-        }).join("<div>");
-    };
-
-    //--------------------------------------------
-    // Variable for Reading column cleanup of kana
-    //--------------------------------------------
-    var kanaRegexp = XRegExp('\\[([\\p{Hiragana}\\p{Katakana}]+)\\]', 'g');
-
-    //-----------------
-    // Complete cleanup
-    //-----------------
-    deckNotes.map(function(note, loc, arr) {
-        // Again, how much hackier can you get :)
-        if (0 == note.Reading.localeCompare("この 単語[たんご]はどういう 意味[いみ]ですか。")) {
-            note.Word = "語 go n. word; language";
-        }
-
-        // Break up Word column into its four separate components
-        note.Word = wordColumnReplace(note.Word);
-
-        // Replace [kana] with spans
-        note.Reading = note.Reading.replace(kanaRegexp,
-                                            function(match, kana, offset, str) {
-            return '<span class="reading kana">' + kana + '</span>';
-        });
-
-        return note;
+    const isAbbreviation = arr.map(function (x) {
+      return abbreviations.indexOf(x) >= 0 ? 1 : 0;
+    });
+    const isWhitePunctuation = arr.map(function (x) {
+      return x.match(/^[\s,]*$/) ? 1 : 0;
+    });
+    let isAbbrOrWhitePunct = isAbbreviation.map(function (x, i) {
+      return x + isWhitePunctuation[i];
     });
 
-    //-------------------------
-    // Visualization and return
-    //-------------------------
-    arrToCSV(deckNotes, deckFields, "Download Nyar's Core5k CSV", divForLink);
+    // combineJunk will find [..., "adv.", ",", "na-adj.", ...] and splice
+    // it into [..., "adv., na-adj.", ...].
+    const tmp = combineJunk(isAbbrOrWhitePunct, arr);
+    arr = tmp.data_array;
+    isAbbrOrWhitePunct = tmp.indicator_array;
+    // Updated arr and isAbbrOrWhitePunct. We need the latter to build the
+    // return object.
 
-    tabulate(deckNotes, deckFields, "#core5000");
+    // Part-of-speech array and translation array, which will go itno the
+    // return object. We rely on each part-of-speech element in arr to be
+    // followed by a translation. So far, this happens.
+    const pos = [];
+    const translation = [];
+    arr.forEach(function (x, i) {
+      if (isAbbrOrWhitePunct[i]) {
+        pos.push(x);
+        translation.push(arr[i + 1]);
+      }
+    });
 
-    // Instead of setting the styles of thousands of <td> tags individually,
-    // just slash on a CSS tag to the DOM.
-    d3.select("head").insert("style", ":first-child").text(
-        "#core5000 th.field-Meaning, #core5000 th.field-Sound {font-size: 10%}\
+    // Grab the initial kanji/kana as well as the roumaji. String.match()
+    // will return a three-element array here: the total match, and the two
+    // groups corresponding to the two regexps.
+    const kanaKanjiMatch = seqString.match(
+      XRegExp(
+        kanaKanjiWordRegexp + " " + romajiRegexp + " " + partOfSpeechRegexp,
+      ),
+    );
+
+    if (0 == seqString.localeCompare("Oa oobii n. OB (old boy), alumnus")) {
+      return {
+        pos: pos,
+        translation: translation,
+        word: "OB",
+        romaji: "oobii",
+      };
+    }
+    return {
+      pos: pos,
+      translation: translation,
+      word: kanaKanjiMatch[1],
+      romaji: kanaKanjiMatch[2],
+    };
+  }
+
+  function combineJunk(indicator_array, data_array) {
+    let i = 1;
+    while (i < indicator_array.length) {
+      if (
+        indicator_array[i] == indicator_array[i - 1] &&
+        indicator_array[i] > 0
+      ) {
+        indicator_array.splice(i - 1, 2, 1);
+        data_array.splice(i - 1, 2, data_array[i - 1] + data_array[i]);
+      } else {
+        i++;
+      }
+    }
+    return { data_array: data_array, indicator_array: indicator_array };
+  }
+
+  // Get rid of &nbsp; and such. It'll mess up my regexping.
+  function decodeHtml(html) {
+    const txt = document.createElement("textarea");
+    txt.innerHTML = html;
+    return txt.value;
+  }
+
+  const wordColumnReplace = function (s) {
+    if (s.search("&") >= 0) {
+      s = decodeHtml(s);
+    }
+
+    const arr = s.split("<div>");
+
+    return arr
+      .map(function (s) {
+        const decomp = bar(s);
+        const posTrans = decomp.pos
+          .map(function (pos, i) {
+            return (
+              '<span class="part-of-speech">' +
+              pos +
+              '</span> <span class="target-words-meaning">' +
+              decomp.translation[i] +
+              "</span>"
+            );
+          })
+          .join(" ");
+        return (
+          '<span class="target-words">' +
+          decomp.word +
+          '</span> <span class="target-words-romaji">' +
+          decomp.romaji +
+          "</span> " +
+          posTrans
+        );
+      })
+      .join("<div>");
+  };
+
+  //--------------------------------------------
+  // Variable for Reading column cleanup of kana
+  //--------------------------------------------
+  const kanaRegexp = XRegExp("\\[([\\p{Hiragana}\\p{Katakana}]+)\\]", "g");
+
+  //-----------------
+  // Complete cleanup
+  //-----------------
+  deckNotes.map(function (note) {
+    // Again, how much hackier can you get :)
+    if (
+      0 ==
+      note.Reading.localeCompare(
+        "この 単語[たんご]はどういう 意味[いみ]ですか。",
+      )
+    ) {
+      note.Word = "語 go n. word; language";
+    }
+
+    // Break up Word column into its four separate components
+    note.Word = wordColumnReplace(note.Word);
+
+    // Replace [kana] with spans
+    note.Reading = note.Reading.replace(kanaRegexp, function (match, kana) {
+      return '<span class="reading kana">' + kana + "</span>";
+    });
+
+    return note;
+  });
+
+  //-------------------------
+  // Visualization and return
+  //-------------------------
+  arrToCSV(deckNotes, deckFields, "Download Nyar's Core5k CSV", divForLink);
+
+  tabulate(deckNotes, deckFields, "#core5000");
+
+  // Instead of setting the styles of thousands of <td> tags individually,
+  // just slash on a CSS tag to the DOM.
+  d3.select("head").insert("style", ":first-child").text(
+    "#core5000 th.field-Meaning, #core5000 th.field-Sound {font-size: 10%}\
 #core5000 th.field-Frequency-Order {font-size:50%}\
 #core5000 td.field-Expression, #core5000 td.field-Reading {font-size: 150%}\
-#core5000 td.field-English-Translation, #core5000  td.field-Word {font-size: 75%}");
+#core5000 td.field-English-Translation, #core5000  td.field-Word {font-size: 75%}",
+  );
 
-    return deckNotes;
+  return deckNotes;
 }
 
+/**
+ * Allows custom display logic for specific decks
+ * @returns {number} 1 if a handler ran, otherwise 0
+ */
 function specialDisplayHandlers() {
-    if (false) {
-        modifiedDeckNotes = _.map(
-            _.filter(deckNotes, function(model) {
-                return 0 ==
-                       "Nayr's Japanese Core5000".localeCompare(model.name);
-            }),
-            function(model) {
-                return core5000Modify(model.notes, model.fieldNames,
-                                      model.name);
-            });
-        if (modifiedDeckNotes.length > 0) {
-            return 1;
-        }
+  if (false) {
+    const modifiedDeckNotes = deckNotes
+      .filter(function (model) {
+        return 0 == "Nayr's Japanese Core5000".localeCompare(model.name);
+      })
+      .map(function (model) {
+        return core5000Modify(model.notes, model.fieldNames, model.name);
+      });
+    if (modifiedDeckNotes.length > 0) {
+      return 1;
     }
-    return 0;
+  }
+  return 0;
 }
-
-var summer = function(arr) {
-    return _.reduce(arr, function(memo, num) { return memo + num; }, 0);
-};
-var mean = function(arr) { return summer(arr) / arr.length; };
