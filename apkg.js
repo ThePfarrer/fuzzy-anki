@@ -1,15 +1,37 @@
 // Import modules
-import { ANK_SEPARATOR, GLOBAL_CORS_PROXY } from './modules/constants.js";
+import { ANK_SEPARATOR, GLOBAL_CORS_PROXY } from "./modules/constants.js";
 import {
   showError,
   validateSqliteHeader,
   validateURL,
   validateZipHeader,
 } from "./modules/errorHandling.js";
-import { arrayNamesToObj, updateNestedObj, summer, mean } from './modules/utils.js';
+import { arrayNamesToObj, updateNestedObj } from "./modules/utils.js";
+import {
+  processDeckData,
+  getDeckNotes,
+  cleanupDeckData as cleanupDeckDataModule,
+} from "./modules/deckProcessing.js";
 
 // For backward compatibility within this file
 const ankiSeparator = ANK_SEPARATOR;
+
+// Memory cleanup functions
+function cleanupDeckData() {
+  cleanupDeckDataModule();
+  // Keep global deckNotes for backward compatibility
+  deckNotes = null;
+}
+
+function cleanupReviewData() {
+  // Clear review data to free memory
+  revlogTable = null;
+  sqliteGlobal = null;
+  decksReviewed = {};
+  modelsReviewed = {};
+  allDecks = null;
+  allModels = null;
+}
 
 // deckNotes contains the contents of any APKG decks uploaded. It is an array of
 // objects with the following properties:
@@ -61,94 +83,6 @@ function tabulate(datatable, columns, containerString) {
                     });
 
     return table;
-}
-
-/**
- * Builds a deck tree structure from Anki's decks JSON object
- * @param {Object} decks - Anki's decks JSON object
- * @returns {Object} Tree structure with deck hierarchy
- */
-function buildDeckTree(decks) {
-  const tree = {};
-  
-  Object.keys(decks).forEach(function(deckId) {
-    const deck = decks[deckId];
-    if (deck.name) {
-      tree[deckId] = {
-        name: deck.name,
-        id: deckId,
-        parent: deck.mid ? null : (deck.parent || null),
-        children: {},
-        notes: []
-      };
-    }
-  });
-  
-  return tree;
-}
-
-/**
- * Gets the full path of a deck from the decks JSON
- * @param {number} deckId - The deck ID to get the path for
- * @param {Object} decks - Anki's decks JSON object
- * @returns {Array<string>} Array of deck names from root to this deck
- */
-function getDeckPath(deckId, decks) {
-  const deck = decks[deckId];
-  
-  if (!deck || !deck.name) {
-    return ['Default'];
-  }
-  
-  // Anki stores deck names with "::" to denote hierarchy
-  // e.g., "Russian::Verbs::PastTense"
-  const path = deck.name.split("::");
-  
-  return path.length > 0 ? path : ['Default'];
-}
-
-/**
- * Organizes notes by their deck hierarchy
- * @param {Object} decks - Anki's decks JSON object
- * @param {Array} notesData - Array of [mid, flds, did] tuples from database
- * @param {Object} models - Anki's models JSON object
- * @returns {Object} Notes organized by deck path
- */
-function organizeNotesByDeck(decks, notesData, models) {
-  const deckHierarchy = {};
-  const ankiSeparator = "\x1f";
-  
-  notesData.forEach(function(noteRow) {
-    const modelId = noteRow[0];
-    const fields = noteRow[1];
-    const deckId = noteRow[2] || 1; // Default to deck ID 1 if not found
-    
-    const deckPath = getDeckPath(deckId, decks);
-    const pathKey = deckPath.join(' > ');
-    
-    if (!deckHierarchy[pathKey]) {
-      deckHierarchy[pathKey] = {
-        path: deckPath,
-        deckId: deckId,
-        notes: []
-      };
-    }
-    
-    if (models[modelId]) {
-      const fieldNames = models[modelId].fields || [];
-      const fieldArray = fields.split(ankiSeparator);
-      const noteObject = arrayNamesToObj(fieldNames, fieldArray);
-      
-      deckHierarchy[pathKey].notes.push({
-        modelId: modelId,
-        modelName: models[modelId].name,
-        fieldNames: fieldNames,
-        data: noteObject
-      });
-    }
-  });
-  
-  return deckHierarchy;
 }
 
 /**
@@ -234,51 +168,24 @@ function renderDeckTree(deckHierarchy, containerId) {
  * @param {Uint8Array} uInt8ArraySQLdb - SQLite database binary data
  */
 function sqlToTable(uInt8ArraySQLdb) {
-  const db = new SQL.Database(uInt8ArraySQLdb);
-
-    // Decks table (for deck names)
-  const decksResult = db.exec("SELECT decks FROM col");
-    // Using JSON.parse for security (prevents code injection)
-  const decks = JSON.parse(decksResult[0].values[0][0]);
-
-    // Models table (for field names)
-  const colResult = db.exec("SELECT models FROM col");
-    // Using JSON.parse for security (prevents code injection)
-  const models = JSON.parse(colResult[0].values[0][0]);
-
-  // Notes table with deck information - JOIN notes with cards to get deck IDs
-  let notesWithDeckData = db.exec(
-    "SELECT n.mid, n.flds, c.did FROM notes n LEFT JOIN cards c ON n.id = c.nid",
-  );
-
-  Object.keys(models).forEach(function (key) {
-    models[key].fields = models[key].flds.map(function (field) {
-      return field.name;
-    });
-    });
+  const deckData = processDeckData(uInt8ArraySQLdb, SQL);
+  deckNotes = deckData.deckNotes;
 
     // Visualize!
     if (0 == specialDisplayHandlers()) {
-    const deckHierarchy = organizeNotesByDeck(decks, deckNotes, models);
-    renderDeckTree(deckHierarchy, "#anki");
-
-    // Add CSV download option for all notes
-    const allNotes = [];
-    Object.keys(deckHierarchy).forEach(function (pathKey) {
-      deckHierarchy[pathKey].notes.forEach(function (note) {
-        allNotes.push({
-          deck: pathKey,
-          model: note.modelName,
-          ...note.data,
-        });
-      });
-        });
-    }
+    renderDeckTree(deckData.deckHierarchy, "#anki");
+  }
 }
 
-function parseImages(imageTable,unzip,filenames){
-    var map = {};
-    for (var prop in imageTable) {
+/**
+ * Maps deck media filenames to base64 data and swaps image sources in the DOM
+ * @param {Object} imageTable - Media filename map from Anki
+ * @param {Object} unzip - Zlib.Unzip instance
+ * @param {Array<string>} filenames - List of filenames in the APKG
+ */
+function parseImages(imageTable, unzip, filenames) {
+  const map = {};
+  for (const prop in imageTable) {
       if (filenames.indexOf(prop) >= 0) {
       const file = unzip.decompress(prop);
       map[imageTable[prop]] = converterEngine(file);
