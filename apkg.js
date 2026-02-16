@@ -11,39 +11,47 @@ const ankiSeparator = ANK_SEPARATOR;
 // - "fieldNames", an array of strings
 // - "notes", an array of objects, each with properties corresponding to the
 // entries of fieldNames.
-var deckNotes;
-var SQL;
+let deckNotes;
+let SQL;
 
 // Huge props to http://stackoverflow.com/a/9507713/500207
 function tabulate(datatable, columns, containerString) {
-    var table = d3.select(containerString).append("table"),
-        thead = table.append("thead"), tbody = table.append("tbody");
+  const table = d3.select(containerString).append("table");
+  const thead = table.append("thead");
+  const tbody = table.append("tbody");
 
     // append the header row
-    thead.append("tr")
+  thead
+    .append("tr")
         .selectAll("th")
         .data(columns)
         .enter()
         .append("th")
-        .text(function(column) { return column; })
-        .attr("class", function(d) { return 'field-' + d.replace(" ", "-"); });
+    .text(function (column) {
+      return column;
+    })
+    .attr("class", function (d) {
+      return "field-" + d.replace(" ", "-");
+    });
 
     // create a row for each object in the data
-    var rows = tbody.selectAll("tr").data(datatable).enter().append("tr");
+  const rows = tbody.selectAll("tr").data(datatable).enter().append("tr");
 
     // create a cell in each row for each column
-    var cells = rows.selectAll("td")
-                    .data(
-                         function(row) {
-                             return columns.map(function(column) {
-                                 return {column : column, value : row[column]};
+  rows
+    .selectAll("td")
+    .data(function (row) {
+      return columns.map(function (column) {
+        return { column: column, value: row[column] };
                              });
                          })
                     .enter()
                     .append("td")
-                    .html(function(d) { return d.value; })
-                    .attr("class", function(d) {
-                        return 'field-' + d.column.replace(" ", "-");
+    .text(function (d) {
+      return d.value;
+    })
+    .attr("class", function (d) {
+      return "field-" + d.column.replace(" ", "-");
                     });
 
     return table;
@@ -88,7 +96,7 @@ function getDeckPath(deckId, decks) {
   
   // Anki stores deck names with "::" to denote hierarchy
   // e.g., "Russian::Verbs::PastTense"
-  const path = deck.name.split('::');
+  const path = deck.name.split("::");
   
   return path.length > 0 ? path : ['Default'];
 }
@@ -189,14 +197,23 @@ function renderDeckTree(deckHierarchy, containerId) {
       const modelData = notesByModel[modelName];
       
       // Add model heading
-      deckContent.append("h4")
+      deckContent
+        .append("h4")
         .style("margin-top", "12px")
         .style("margin-bottom", "8px")
-        .text(modelName + " (" + modelData.notes.length + " note" + (modelData.notes.length !== 1 ? "s" : "") + ")");
+        .text(
+          modelName +
+            " (" +
+            modelData.notes.length +
+            " note" +
+            (modelData.notes.length !== 1 ? "s" : "") +
+            ")",
+        );
       
       // Create table div with unique ID
-      const tableDivId = "deck-table-" + (tableCounter++);
-      const tableDiv = deckContent.append("div")
+      const tableDivId = "deck-table-" + tableCounter++;
+      const tableDiv = deckContent
+        .append("div")
         .attr("id", tableDivId)
         .attr("class", "deck-model-table");
       
@@ -206,52 +223,49 @@ function renderDeckTree(deckHierarchy, containerId) {
   });
 }
 
-
 /**
  * Converts SQLite binary data to table format and displays deck contents
  * @param {Uint8Array} uInt8ArraySQLdb - SQLite database binary data
  */
 function sqlToTable(uInt8ArraySQLdb) {
-    var db = new SQL.Database(uInt8ArraySQLdb);
+  const db = new SQL.Database(uInt8ArraySQLdb);
 
     // Decks table (for deck names)
-    decks = db.exec("SELECT decks FROM col");
+  const decksResult = db.exec("SELECT decks FROM col");
     // Using JSON.parse for security (prevents code injection)
-    decks = JSON.parse(decks[0].values[0][0]);
+  const decks = JSON.parse(decksResult[0].values[0][0]);
 
     // Models table (for field names)
-    col = db.exec("SELECT models FROM col");
+  const colResult = db.exec("SELECT models FROM col");
     // Using JSON.parse for security (prevents code injection)
-    var models = JSON.parse(col[0].values[0][0]);
+  const models = JSON.parse(colResult[0].values[0][0]);
 
-    // Notes table, for raw facts that make up individual cards
-    deckNotes = db.exec("SELECT mid,flds FROM notes");
+  // Notes table with deck information - JOIN notes with cards to get deck IDs
+  let notesWithDeckData = db.exec(
+    "SELECT n.mid, n.flds, c.did FROM notes n LEFT JOIN cards c ON n.id = c.nid",
+  );
 
-    _.each(_.keys(models), function(key) {
-        models[key].fields = _.pluck(models[key].flds, 'name');
+  Object.keys(models).forEach(function (key) {
+    models[key].fields = models[key].flds.map(function (field) {
+      return field.name;
     });
-
-    var notesByModel =
-        _.groupBy(deckNotes[0].values, function(row) { return row[0]; });
-
-    deckNotes = _.map(notesByModel, function(notesArray, modelId) {
-        var modelName = models[modelId].name;
-        var fieldNames = models[modelId].fields;
-        var notesArray = _.map(notesArray, function(note) {
-            var fields = note[1].split(ankiSeparator);
-            return arrayNamesToObj(fieldNames, fields);
-        });
-        return {name : modelName, notes : notesArray, fieldNames : fieldNames};
     });
 
     // Visualize!
     if (0 == specialDisplayHandlers()) {
-        _.each(deckNotes, function(model, idx) {
-            d3.select("#anki").append("h2").text(model.name);
-            var deckId = "deck-" + idx;
-            d3.select("#anki").append("div").attr("id", deckId);
-            tabulate(model.notes, model.fieldNames, "#" + deckId);
-            arrToCSV(model.notes, model.fieldNames, "Download CSV", d3.select("#" + deckId))
+    const deckHierarchy = organizeNotesByDeck(decks, deckNotes, models);
+    renderDeckTree(deckHierarchy, "#anki");
+
+    // Add CSV download option for all notes
+    const allNotes = [];
+    Object.keys(deckHierarchy).forEach(function (pathKey) {
+      deckHierarchy[pathKey].notes.forEach(function (note) {
+        allNotes.push({
+          deck: pathKey,
+          model: note.modelName,
+          ...note.data,
+        });
+      });
         });
     }
 }
@@ -260,16 +274,15 @@ function parseImages(imageTable,unzip,filenames){
     var map = {};
     for (var prop in imageTable) {
       if (filenames.indexOf(prop) >= 0) {
-        var file = unzip.decompress(prop);
-        map[imageTable[prop]] = converterEngine (file);
+      const file = unzip.decompress(prop);
+      map[imageTable[prop]] = converterEngine(file);
       }
     }
-    d3.selectAll("img")
-      .attr("src", function(d,i) {
+  d3.selectAll("img").attr("src", function () {
         //Some filenames may be encoded. Decode them beforehand.
-        var key = decodeURI(this.src.split('/').pop());
-        if (key in map){
-          return "data:image/png;base64,"+map[key];
+    const key = decodeURI(this.src.split("/").pop());
+    if (key in map) {
+      return "data:image/png;base64," + map[key];
         }
           return this.src;
       });
@@ -277,32 +290,40 @@ function parseImages(imageTable,unzip,filenames){
 
 function converterEngine (input) { // fn BLOB => Binary => Base64 ?
   // adopted from https://github.com/NYTimes/svg-crowbar/issues/16
-    var uInt8Array = new Uint8Array(input),
-        i = uInt8Array.length;
-    var biStr = []; //new Array(i);
+  const uInt8Array = new Uint8Array(input);
+  let i = uInt8Array.length;
+  const biStr = []; //new Array(i);
     while (i--) {
         biStr[i] = String.fromCharCode(uInt8Array[i]);
     }
-    var base64 = window.btoa(biStr.join(''));
+  const base64 = window.btoa(biStr.join(""));
     return base64;
 };
 
 function ankiBinaryToTable(ankiArray, options) {
-    var compressed = new Uint8Array(ankiArray);
-    var unzip = new Zlib.Unzip(compressed);
-    var filenames = unzip.getFilenames();
-    var anki21Exists = filenames.indexOf("collection.anki21") >= 0;
-    var sqliteFile = anki21Exists ? "collection.anki21" : "collection.anki2";
+  // Validate ZIP header before attempting decompression
+  if (!validateZipHeader(ankiArray)) {
+    showError(
+      "Invalid or corrupted APKG file. The file does not appear to be a valid ZIP archive.",
+    );
+    return;
+  }
+
+  const compressed = new Uint8Array(ankiArray);
+  const unzip = new Zlib.Unzip(compressed);
+  const filenames = unzip.getFilenames();
+  const anki21Exists = filenames.indexOf("collection.anki21") >= 0;
+  const sqliteFile = anki21Exists ? "collection.anki21" : "collection.anki2";
     if (filenames.indexOf(sqliteFile) >= 0) {
-        var plain = unzip.decompress(sqliteFile);
+    const plain = unzip.decompress(sqliteFile);
         sqlToTable(plain);
-        if (options && options.loadImage){
+    if (options && options.loadImage) {
           if (filenames.indexOf("media") >= 0) {
-              var plainmedia = unzip.decompress("media");
-              var bb = new Blob([new Uint8Array(plainmedia)]);
-              var f = new FileReader();
-              f.onload = function(e) {
-                parseImages(JSON.parse(e.target.result),unzip,filenames);
+        const plainmedia = unzip.decompress("media");
+        const bb = new Blob([new Uint8Array(plainmedia)]);
+        const f = new FileReader();
+        f.onload = function (e) {
+          parseImages(JSON.parse(e.target.result), unzip, filenames);
               };
               f.readAsText(bb);
           }
@@ -326,32 +347,57 @@ function ankiURLToTable(ankiURL, options, useCorsProxy, corsProxyURL) {
         corsProxyURL = GLOBAL_CORS_PROXY;
     }
 
-    var zipxhr = new XMLHttpRequest();
-    zipxhr.open('GET', (useCorsProxy ? corsProxyURL : "") + ankiURL, true);
-    zipxhr.responseType = 'arraybuffer';
-    zipxhr.onload = function(e) { ankiBinaryToTable(this.response, options); };
-    zipxhr.send();
-}
+  // Validate URL before proceeding
+  if (!validateURL(ankiURL)) {
+    showError("Invalid URL provided. Please enter a valid HTTP or HTTPS URL.");
+    return;
+  }
 
-function arrayNamesToObj(fields, values) {
-    var obj = {};
-    for (i in values) {
-        obj[fields[i]] = values[i];
+  // Warn about CORS proxy privacy implications
+  if (useCorsProxy) {
+    if (
+      !confirm(
+        "Warning: Using a third-party CORS proxy means your download URL will be sent through " +
+          corsProxyURL +
+          ". This service can see and potentially log your activity. Continue?",
+      )
+    ) {
+      return;
     }
-    return obj;
+  }
+
+  // Use Fetch API instead of XMLHttpRequest for better promise-based handling
+  const fetchUrl = (useCorsProxy ? corsProxyURL : "") + ankiURL;
+  fetch(fetchUrl)
+    .then(function (response) {
+      if (!response.ok) {
+        throw new Error("Failed to download deck. Status: " + response.status);
+      }
+      return response.arrayBuffer();
+    })
+    .then(function (arrayBuffer) {
+      ankiBinaryToTable(arrayBuffer, options);
+    })
+    .catch(function (error) {
+      showError("Error downloading deck: " + error.message);
+    });
 }
 
+/**
+ * Builds the review results UI and visualization options
+ */
 function displayRevlogOutputOptions() {
-    var ul = d3.select("body")
+  const ul = d3
+    .select("body")
                  .append("div")
                  .attr("id", "reviews")
                  .append("div")
                  .attr("id", "reviews-options")
                  .append("ul")
                  .attr("id", "reviews-options-list");
-    var tooMuch = 101;
+  const tooMuch = 101;
     if (revlogTable.length > tooMuch) {
-        ul.append('li')
+    ul.append("li")
             .attr("id", "tabulate-request")
             .append("button")
       .text(
@@ -368,25 +414,30 @@ function displayRevlogOutputOptions() {
             .attr("id", "export-request")
             .append("button")
             .text("Generate CSV spreadsheet")
-            .on("click", function() { generateReviewsCSV(); });
+      .on("click", function () {
+        generateReviewsCSV();
+      });
     } else {
         tabulateReviews();
         generateReviewsCSV();
     }
 
-    var viz = ul.append('li')
-                  .attr("id", "viz-options");
+  const viz = ul.append("li").attr("id", "viz-options");
 
-    viz.append("button").text('Visualize performance').on("click", function() {
-        var selectedFields = d3.selectAll("#viz-models-list > li.viz-model")
+  viz
+    .append("button")
+    .text("Visualize performance")
+    .on("click", function () {
+      const selectedFields = d3
+        .selectAll("#viz-models-list > li.viz-model")
                                  .selectAll("input:checked");
-        var config = selectedFields.map(function(mod) {
-            mid = /[0-9]+/.exec(mod.parentNode.id)[0];
-            fs = mod.map(function(sub) {
-                var fnum = /field-([0-9]+)/.exec(sub.id)[1];
+      let config = selectedFields.map(function (mod) {
+        const mid = /[0-9]+/.exec(mod.parentNode.id)[0];
+        const fs = mod.map(function (sub) {
+          const fnum = /field-([0-9]+)/.exec(sub.id)[1];
                 return allModels[mid].flds[fnum].name;
             });
-            return {modelID : mid, fieldNames : fs};
+        return { modelID: mid, fieldNames: fs };
         });
       config = arrayNamesToObj(
         config.map(function (entry) {
@@ -400,29 +451,38 @@ function displayRevlogOutputOptions() {
         revlogVisualizeProgress(config, getSelectedDeckIDs());
     });
 
-    var vizDecks =
-        viz.append("ul").append('li').text("Select decks to analyze").append('ul').attr(
-            "id", "viz-decks-list");
-    var vizModels = viz.append("ul")
-                        .append('li')
-                        .text(
-                             "Select fields for each model to display in plots")
-                        .append('ul')
+  const vizDecks = viz
+    .append("ul")
+    .append("li")
+    .text("Select decks to analyze")
+    .append("ul")
+    .attr("id", "viz-decks-list");
+  const vizModels = viz
+    .append("ul")
+    .append("li")
+    .text("Select fields for each model to display in plots")
+    .append("ul")
                         .attr("id", "viz-models-list");
 
     // Data: elements of decksReviewed (which are {deck IDs -> object})
     // TODO: enable visualization of unknown decks: .data(Object.keys(decksReviewed))
-    var decksReviewedKeysAlphabetized =
-        _.sortBy(Object.keys(_.omit(decksReviewed, null)), function(did) {
-            return allDecks[did] ? allDecks[did].name : "zzzUnknown";
-        });
-    var vizDecksList = vizDecks.selectAll("li")
+  const decksReviewedKeysAlphabetized = Object.keys(decksReviewed)
+    .filter(function (did) {
+      return did !== "null";
+    })
+    .sort(function (a, b) {
+      const nameA = allDecks[a] ? allDecks[a].name : "zzzUnknown";
+      const nameB = allDecks[b] ? allDecks[b].name : "zzzUnknown";
+      return nameA.localeCompare(nameB);
+    });
+  const vizDecksList = vizDecks
+    .selectAll("li")
                            .data(decksReviewedKeysAlphabetized)
                            .enter()
     .append("li");
 
-  vizDecksList.each(function (d, i) {
-    var label = d3
+  vizDecksList.each(function (d) {
+    const label = d3
       .select(this)
       .append("label")
       .attr("for", "viz-deck-" + d);
@@ -437,80 +497,106 @@ function displayRevlogOutputOptions() {
       .append("text")
       .text(" " + (d !== "null" ? allDecks[d].name : "Unknown deck"));
 
-    var thisModels = _.filter(
-      Object.keys(decksReviewed[d]).map(function (mid) {
+    const thisModels = Object.keys(decksReviewed[d])
+      .map(function (mid) {
             return d !== "null" ? allModels[mid].name : null;
-        }), null);
-        return '<input type="checkbox" checked id="viz-deck-' + d + '"> ' +
-               (d !== "null" ? allDecks[d].name : "Unknown deck") +
-               (thisModels.length > 0
-                    ? " (contains model" +
+      })
+      .filter(function (value) {
+        return value;
+      });
+
+    if (thisModels.length > 0) {
+      label
+        .append("text")
+        .text(
+          " (contains model" +
                           (thisModels.length > 1 ? "s " : " ") +
-                          thisModels.join(", ") + ")"
-                    : "");
+            thisModels.join(", ") +
+            ")",
+        );
+    }
     });
 
-    $('#viz-deck-null').attr("checked", false);
+  $("#viz-deck-null").attr("checked", false);
 
-    $('#viz-decks-list input:checkbox')
-        .click(function() { updateModelChoices(); });
+  $("#viz-decks-list input:checkbox").click(function () {
+    updateModelChoices();
+  });
     updateModelChoices();
 }
 
 function getSelectedDeckIDs() {
-    var selectedDecks = _.pluck($('#viz-decks-list input:checked'), 'id');
+  const selectedDecks = $("#viz-decks-list input:checked")
+    .map(function () {
+      return this.id;
+    })
+    .get();
     // In case the above is too fancy across browsers, this is equivalent:
     // `$.map($('#viz-decks-list input:checked'), function(x){return x.id;})`
 
-    var selectedDeckIDs = selectedDecks.map(function(id) {
+  const selectedDeckIDs = selectedDecks.map(function (id) {
         return id !== "viz-deck-null" ? /[0-9]+/.exec(id)[0] : null;
     });
     return selectedDeckIDs;
 }
 
 function updateModelChoices() {
-    var selectedDeckIDs = getSelectedDeckIDs();
+  const selectedDeckIDs = getSelectedDeckIDs();
 
-    var modelIDs = _.union(_.flatten(_.map(selectedDeckIDs.map(function(did) {
+  const modelIDs = Array.from(
+    new Set(
+      selectedDeckIDs
+        .map(function (did) {
         return decksReviewed[did];
-    }), function(val) { return Object.keys(val); })));
+        })
+        .filter(function (val) {
+          return val;
+        })
+        .reduce(function (acc, val) {
+          return acc.concat(Object.keys(val));
+        }, []),
+    ),
+  );
 
-    var vizModels = d3.select("#viz-models-list");
-    var modelsData = vizModels.selectAll("li.viz-model")
-                         .data(modelIDs, function(mid) { return mid; });
+  const vizModels = d3.select("#viz-models-list");
+  const modelsData = vizModels
+    .selectAll("li.viz-model")
+    .data(modelIDs, function (mid) {
+      return mid;
+    });
     // For an explanation of the CSS class 'viz-model' see
     // http://stackoverflow.com/a/25599142/500207
 
     modelsData.exit().remove();
 
-    var vizModelsList =
-        modelsData.enter()
+  const vizModelsList = modelsData
+    .enter()
             .append("li")
-            .attr("id", function(mid) { return "viz-model-" + mid; })
-            .text(
-                 function(mid) {
-                     return mid !== "null" ? allModels[mid].name
-                                           : "Unknown model";
+    .attr("id", function (mid) {
+      return "viz-model-" + mid;
+    })
+    .text(function (mid) {
+      return mid !== "null" ? allModels[mid].name : "Unknown model";
                  })
             /*.on("click", function(mid) {
                 $('#viz-model-' + mid + '-list').slideToggle();
             })*/
-            .classed("viz-model",
-                     true).append("ul").append("li");
+    .classed("viz-model", true)
+    .append("ul")
+    .append("li");
 
-    var vizFields =
-        vizModelsList.selectAll("span")
-            .data(
-                 function(d) {
+  const vizFields = vizModelsList
+    .selectAll("span")
+    .data(function (d) {
                      return d !== "null"
-                                ? (_.pluck(allModels[d].flds, 'name').map(
-                                      function(name, idx) {
+        ? allModels[d].flds.map(function (field, idx) {
                                           return {
-                                              name : name,
-                                              modelId : d,
-                                              total : allModels[d].flds.length
+              name: field.name,
+              modelId: d,
+              total: allModels[d].flds.length,
+              idx: idx,
                                           };
-                                      }))
+          })
                                 : [];
                  })
             .enter()
@@ -527,22 +613,21 @@ function updateModelChoices() {
 }
 
 function arrToCSV(dataArray, fieldsArray, linkText, d3SelectionToAppend) {
-    var csv = convert(dataArray, fieldsArray);
-    var blob = new Blob([csv], {type : 'data:text/csv;charset=utf-8'});
-    var url = URL.createObjectURL(blob);
-    return d3SelectionToAppend.append("a")
-        .attr("href", url)
-        .text(linkText);
+  const csv = convert(dataArray, fieldsArray);
+  const blob = new Blob([csv], { type: "data:text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  return d3SelectionToAppend.append("a").attr("href", url).text(linkText);
 }
 
 function generateReviewsCSV() {
-    var d3Selection = arrToCSV(
+  const d3Selection = arrToCSV(
         revlogTable,
         "dateString,ease,interval,lastInterval,timeToAnswer,noteSortKeyFact,deckName,modelName,lapses,\
-reps,cardId,noteFactsJSON".split(','),
-        "Download CSV", d3.select("#export-request").append("li").attr(
-                            "id", "export-completed"));
-    d3Selection.classed('csv-download', true);
+reps,cardId,noteFactsJSON".split(","),
+    "Download CSV",
+    d3.select("#export-request").append("li").attr("id", "export-completed"),
+  );
+  d3Selection.classed("csv-download", true);
 }
 
 function tabulateReviews() {
@@ -552,35 +637,40 @@ reps,cardId,noteFactsJSON".split(','),
              "div#reviews");
 }
 
-// Note, this changes obj's parameters ("call by sharing") so the return value
-// is purely a nicety: the object WILL be changed in the caller's scope.
-function updateNestedObj(obj, outerKey, innerKey, innerVal) {
-    if (!(outerKey in obj)) {
-        obj[outerKey] = {};  // don't do {innerKey: innerKey} '_'
-        obj[outerKey][innerKey] = innerVal;
-    } else {
-        if (!(innerKey in obj[outerKey])) {
-            obj[outerKey][innerKey] = innerVal;
-        }
-    }
-    return obj;
-}
-
-var sqliteGlobal;
-var revlogTable;
-var decksReviewed = {}, modelsReviewed = {}, allDecks, allModels;
+let sqliteGlobal;
+let revlogTable;
+let decksReviewed = {};
+let modelsReviewed = {};
+let allDecks;
+let allModels;
+/**
+ * Converts Anki collection.anki2 file to review log table format
+ * Processes review history and displays performance analytics
+ * Validates SQLite header before processing to catch corrupted files early
+ * @param {ArrayBuffer} array - SQLite database binary data from collection.anki2
+ * @param {Object} options - Configuration { limit: number, recent: boolean }
+ */
 function ankiSQLToRevlogTable(array, options) {
-    if (typeof options === 'undefined') {
-        options = {limit : 100, recent : true};
+  if (typeof options === "undefined") {
+    options = { limit: 100, recent: true };
     }
 
-    var sqliteBinary = new Uint8Array(array);
-    var sqlite = new SQL.Database(sqliteBinary);
+  // Validate SQLite header before processing
+  if (!validateSqliteHeader(array)) {
+    showError(
+      "Invalid or corrupted SQLite file. The file does not appear to be a valid Anki collection database.",
+    );
+    return;
+  }
+
+  const sqliteBinary = new Uint8Array(array);
+  const sqlite = new SQL.Database(sqliteBinary);
     sqliteGlobal = sqlite;
 
     // The deck name is in decks, and the field names are in models
     // which are JSON, and have to be handled outside SQL.
-  const allModelsDecks = sqlite.exec("SELECT models,decks FROM col")[0].values[0];
+  const allModelsDecks = sqlite.exec("SELECT models,decks FROM col")[0]
+    .values[0];
   allModels = JSON.parse(allModelsDecks[0]);
   allDecks = JSON.parse(allModelsDecks[1]);
 
@@ -680,12 +770,14 @@ LEFT OUTER JOIN cards ON revlog.cid=cards.id")[0].values;
 }
 
 function reduceRevlogTable(deckIDsWanted) {
-    deckIDsWanted = deckIDsWanted.map(function(i) { return parseInt(i); });
+  const deckIDs = deckIDsWanted.map(function (i) {
+    return parseInt(i);
+  });
 
     // See if revlogTable is sorted ascending or descending by examining the
     // first two elements.
     // NB. This will fail if the SQL query isn't sorted by time!
-    var oldestFirst = revlogTable[0].date < revlogTable[1].date;
+  const oldestFirst = revlogTable[0].date < revlogTable[1].date;
 
     // We wanted to know whether the oldest came first or last because a key
     // element of this visualization is the date each note was learned.
@@ -694,13 +786,13 @@ function reduceRevlogTable(deckIDsWanted) {
     // or reduceRight. Just accumulate the individual reviews. We don't need to
     // keep track of dates, or lapses, or total reps since the database gave us
     // that.
-    var uniqueKeysSeenSoFar = 0;
-    var temporalIndexToCardArray = [];
-    var revDb;
+  let uniqueKeysSeenSoFar = 0;
+  const temporalIndexToCardArray = [];
+  let revDb;
 
-    var reductionFunction = function(dbSoFar, rev, idx) {
-        var key = rev.cardId;
-        if (deckIDsWanted && deckIDsWanted.indexOf(rev.deckId) < 0) {
+  const reductionFunction = function (dbSoFar, rev) {
+    const key = rev.cardId;
+    if (deckIDs && deckIDs.indexOf(rev.deckId) < 0) {
             return dbSoFar;
         }
 
@@ -710,14 +802,14 @@ function reduceRevlogTable(deckIDsWanted) {
         } else {
             // Fist time seeing this card ID
             dbSoFar[key] = {
-                allRevlogs : [rev],
-                reps : rev.reps,
-                lapses : rev.lapses,
+        allRevlogs: [rev],
+        reps: rev.reps,
+        lapses: rev.lapses,
                 cardId: rev.cardId,
-                modelId : rev.modelId,
-                dateLearned : rev.date,
-                noteFacts : rev.noteFacts,
-                temporalIndex : uniqueKeysSeenSoFar
+        modelId: rev.modelId,
+        dateLearned: rev.date,
+        noteFacts: rev.noteFacts,
+        temporalIndex: uniqueKeysSeenSoFar,
             };
             temporalIndexToCardArray[uniqueKeysSeenSoFar] = key;
             uniqueKeysSeenSoFar++;
@@ -733,33 +825,40 @@ function reduceRevlogTable(deckIDsWanted) {
     }
 
     return {
-        revDb : revDb,
-        temporalIndexToCardArray : temporalIndexToCardArray
+    revDb: revDb,
+    temporalIndexToCardArray: temporalIndexToCardArray,
     };
 }
 
 function cardAndConfigToString(cardObj, config) {
     return config[cardObj.modelId].length > 0
-               ? (config[cardObj.modelId]
-                      .map(function(
-                          factName) { return cardObj.noteFacts[factName]; })
-                      .join(', '))
-               : ("card ID: " + cardObj.cardId);
+    ? config[cardObj.modelId]
+        .map(function (factName) {
+          return cardObj.noteFacts[factName];
+        })
+        .join(", ")
+    : "card ID: " + cardObj.cardId;
 }
 
-var revDb, temporalIndexToCardArray;
+let revDb;
+let temporalIndexToCardArray;
+/**
+ * Renders review performance visualizations
+ * @param {Object} configModelsFacts - Selected model fields
+ * @param {Array<string|number>} deckIDsWanted - Deck IDs to include
+ */
 function revlogVisualizeProgress(configModelsFacts, deckIDsWanted) {
     // This function needs to take, as logical inputs, the decks and models to
     // limit the visualization to, plus a boolean operation AND or OR to combine
     // the two, and finally a way to display the pertinent facts about a card so
     // that cards are better-distinguished than card IDs (a long nunmber).
-    if (typeof deckIDsWanted === undefined) {
+  if (typeof deckIDsWanted === "undefined") {
         deckIDsWanted = [];
     }
 
-    revDb = reduceRevlogTable(deckIDsWanted);
-    temporalIndexToCardArray = revDb.temporalIndexToCardArray;
-    revDb = revDb.revDb;
+  const reduced = reduceRevlogTable(deckIDsWanted);
+  temporalIndexToCardArray = reduced.temporalIndexToCardArray;
+  revDb = reduced.revDb;
 
     // So now we've generated an object indexed by whatever keyFactId was chosen
     // (and potentially restricted to a deck/model) that tells us performance
@@ -767,10 +866,10 @@ function revlogVisualizeProgress(configModelsFacts, deckIDsWanted) {
     // cards: TODO: allow user to select treating them as the same card.
 
     function appendC3Div(heading, text, id) {
-        var newdiv = d3.select("#reviews").append("div");
+    const newdiv = d3.select("#reviews").append("div");
         newdiv.append("h4").text(heading);
-        newdiv.append('p').text(text);
-        newdiv.append('div').attr("id", id);
+    newdiv.append("p").text(text);
+    newdiv.append("div").attr("id", id);
         // d3.select("#reviews").append('div').attr("id", id);
     }
 
@@ -797,21 +896,22 @@ performance, so this scatter plot cannot be easily used for analysis.",
     // Pass rate per unique card
     //------------------------------------------------------------------------
     // Generate the column-wise array of arrays that c3js wants
-    var chartArr = _.map(revDb, function(val, key) {
-        return [ val.dateLearned, 1 + val.temporalIndex ];
+  const revDbKeys = Object.keys(revDb);
+  const chartArr = revDbKeys.map(function (key) {
+    const val = revDb[key];
+    return [val.dateLearned, 1 + val.temporalIndex];
     });
     chartArr.unshift(['date', 'card index']);
 
     // Invoke the c3js method
-    var chart = c3.generate({
-        bindto : '#chart',
-        data : {
-                 x : 'date',
-                 rows : chartArr,
-                 onmouseover :
-                     function(d, i) {
-                         $('.c3-circle-' + d.index).css({
-                             "stroke-width": 5
+  c3.generate({
+    bindto: "#chart",
+    data: {
+      x: "date",
+      rows: chartArr,
+      onmouseover: function (d) {
+        $(".c3-circle-" + d.index).css({
+          "stroke-width": 5,
                          });
                      },
                  onmouseout :
@@ -860,12 +960,26 @@ performance, so this scatter plot cannot be easily used for analysis.",
     });
 
     // Make the radius and opacity of each data circle depend on the pass rate
-    var grader =
-        function(dbentry) { return 1 - dbentry.lapses / dbentry.reps; };
-    var worstRate = grader(_.min(revDb, grader));
-    var scaleRadius = d3.scale.linear().domain([ worstRate - .005, 1 ]).range([ 2, 45 ]);
-    var scaleOpacity =
-        d3.scale.pow().exponent(-17).domain([ worstRate, 1 ]).range([ 1, 0.05 ]);
+  const grader = function (dbentry) {
+    return 1 - dbentry.lapses / dbentry.reps;
+  };
+  const revDbValues = revDbKeys.map(function (key) {
+    return revDb[key];
+  });
+  const worstRate = grader(
+    revDbValues.reduce(function (minVal, current) {
+      return grader(current) < grader(minVal) ? current : minVal;
+    }, revDbValues[0]),
+  );
+  let scaleRadius = d3
+    .scaleLinear()
+    .domain([worstRate - 0.005, 1])
+    .range([2, 45]);
+  let scaleOpacity = d3
+    .scalePow()
+    .exponent(-17)
+    .domain([worstRate, 1])
+    .range([1, 0.05]);
 
     // The following helps smooth out the diversity of radii and opacities by
     // putting more slope in the linear scale where there's more mass in the
@@ -874,24 +988,23 @@ performance, so this scatter plot cannot be easily used for analysis.",
     // looks good, but it depends on the user's data, and requires some
     // automatic histogram analysis: TODO.
     if (false) {
-        var lin = d3.scale.linear().domain([ 0, 1 ]).range(scaleRadius.range());
-        scaleRadius =
-            d3.scale.linear()
-                .domain([ worstRate, .85, .93, .96, 1 ])
-                .range([ lin(0), lin(.2), lin(.8), lin(.99), lin(1) ]);
-        lin = d3.scale.linear().domain([ 0, 1 ]).range(scaleOpacity.range());
-        scaleOpacity =
-            d3.scale.linear()
-                .domain([ worstRate, .85, .93, .96, 1 ])
-                .range([ lin(0), lin(.2), lin(.8), lin(.99), lin(1) ]);
+    let lin = d3.scaleLinear().domain([0, 1]).range(scaleRadius.range());
+    scaleRadius = d3
+      .scaleLinear()
+      .domain([worstRate, 0.85, 0.93, 0.96, 1])
+      .range([lin(0), lin(0.2), lin(0.8), lin(0.99), lin(1)]);
+    lin = d3.scaleLinear().domain([0, 1]).range(scaleOpacity.range());
+    scaleOpacity = d3
+      .scaleLinear()
+      .domain([worstRate, 0.85, 0.93, 0.96, 1])
+      .range([lin(0), lin(0.2), lin(0.8), lin(0.99), lin(1)]);
     }
 
-    temporalIndexToCardArray.forEach(function(value, idx) {
-        var dbentry = revDb[temporalIndexToCardArray[idx]];
-        var rate = grader(dbentry);
-        // if (idx>=557) {debugger;}
-        d3.select('.c3-circle-' + idx).attr({
-            'r' : scaleRadius(rate),
+  temporalIndexToCardArray.forEach(function (_, idx) {
+    const dbentry = revDb[temporalIndexToCardArray[idx]];
+    const rate = grader(dbentry);
+    d3.select(".c3-circle-" + idx).attr({
+      r: scaleRadius(rate),
             //'fill-opacity' : 0,
             //'fill' : 'none',
             'stroke-opacity' : scaleOpacity(rate)
@@ -904,26 +1017,32 @@ performance, so this scatter plot cannot be easily used for analysis.",
     //------------------------------------------------------------------------
     // High to low, then reverse, to make sure 1.01 and 1 have no roundoff.
     // Include 1.01 to capture 1 in its own bin
-    var binDistance = 0.01;
-    var histEdges = _.range(1.01, Math.floor(worstRate * 100) / 100,
-                            -binDistance).reverse();
+  const binDistance = 0.01;
+  const histEdges = [];
+  const histEnd = Math.floor(worstRate * 100) / 100;
+  for (let edge = 1.01; edge > histEnd; edge -= binDistance) {
+    histEdges.push(edge);
+  }
+  histEdges.reverse();
 
-    var histData = d3.layout.histogram().bins(histEdges)(_.map(revDb, grader));
-    var normalizeHistToPercent = 1 / (temporalIndexToCardArray.length);
-    var chartHistData =
-        _.map(histData, function(bar) { return [ bar.x, bar.y ]; });
-    chartHistData.unshift([ 'x', 'frequency' ]);
-    var hist = c3.generate({
-        bindto : '#histogram',
-        data : {x : 'x', rows : chartHistData, type : "bar"},
-        bar : {width : {ratio : .95}},
-        axis : {
-                 y : {label : {text : "Number of cards"}},
-                 x : {
-                     label : {text : "Pass rate"},
-                     tick : {format : d3.format('.2p')}
-
-                 }
+  const histData = d3.histogram().domain([0, 1]).thresholds(histEdges)(
+    revDbValues.map(grader),
+  );
+  const normalizeHistToPercent = 1 / temporalIndexToCardArray.length;
+  const chartHistData = histData.map(function (bar) {
+    return [bar.x, bar.y];
+  });
+  chartHistData.unshift(["x", "frequency"]);
+  c3.generate({
+    bindto: "#histogram",
+    data: { x: "x", rows: chartHistData, type: "bar" },
+    bar: { width: { ratio: 0.95 } },
+    axis: {
+      y: { label: { text: "Number of cards" } },
+      x: {
+        label: { text: "Pass rate" },
+        tick: { format: d3.format(".2p") },
+      },
                },
         tooltip : {
                     format : {
@@ -941,16 +1060,22 @@ performance, so this scatter plot cannot be easily used for analysis.",
     //-----------------
     // Time to failure plots
     //--------------------
-    var unitRandom = function() { return (Math.random() - 0.5) * .5; };
-    var lapsesReps = temporalIndexToCardArray.map(
-        function(key, idx){return [ revDb[key].lapses + unitRandom(), revDb[key].reps + unitRandom()]});
-    lapsesReps.unshift(['lapses', 'reps']);
-    var lapsesRepsChart = c3.generate({
-        bindto : '#scatter-rep-lapse',
-        data : {x : 'reps', rows : lapsesReps, type : "scatter"},
-        axis : {
-                 x : {label : {text : "# reps, integer with jitter"}, tick : {fit : false}},
-                 y : {label : {text : "# lapses, integer with jitter"}}
+  const unitRandom = function () {
+    return (Math.random() - 0.5) * 0.5;
+  };
+  const lapsesReps = temporalIndexToCardArray.map(function (key) {
+    return [revDb[key].lapses + unitRandom(), revDb[key].reps + unitRandom()];
+  });
+  lapsesReps.unshift(["lapses", "reps"]);
+  c3.generate({
+    bindto: "#scatter-rep-lapse",
+    data: { x: "reps", rows: lapsesReps, type: "scatter" },
+    axis: {
+      x: {
+        label: { text: "# reps, integer with jitter" },
+        tick: { fit: false },
+      },
+      y: { label: { text: "# lapses, integer with jitter" } },
                },
         legend : {show : false}
     });
@@ -958,17 +1083,17 @@ performance, so this scatter plot cannot be easily used for analysis.",
     //-----------
     // Normalized
     //-----------
-    var current = new Date().getTime();
-    var dayDiff = function(initial) {
+  const current = new Date().getTime();
+  const dayDiff = function (initial) {
         return (current - initial.getTime()) / (1000 * 3600 * 24);
     };
-    jitteredTimeToCard = {};
-    var lapsesTime = temporalIndexToCardArray.map(function(key, idx) {
-        var jitteredTime = dayDiff(revDb[key].dateLearned) + unitRandom();
+  const jitteredTimeToCard = {};
+  const lapsesTime = temporalIndexToCardArray.map(function (key) {
+    const jitteredTime = dayDiff(revDb[key].dateLearned) + unitRandom();
         jitteredTimeToCard[jitteredTime] = key;
-        return [ revDb[key].lapses + unitRandom(), jitteredTime ];
+    return [revDb[key].lapses + unitRandom(), jitteredTime];
     });
-    lapsesTime.unshift([ 'lapses', 'daysKnown' ]);
+  lapsesTime.unshift(["lapses", "daysKnown"]);
 
     /*
     var lapsesTimesTranspose = [];
@@ -980,13 +1105,13 @@ performance, so this scatter plot cannot be easily used for analysis.",
     }
     */ /*data --> columns : lapsesTimesTranspose*/
 
-    var lapsesDaysChart = c3.generate({
-        bindto : '#scatter-norm-rep-lapse',
-        data : {x : 'daysKnown', rows : lapsesTime, type : "scatter"},
-        axis : {
-                 x : {
-                       label : {text : "days known, with jitter"},
-                       tick : {fit : false}
+  c3.generate({
+    bindto: "#scatter-norm-rep-lapse",
+    data: { x: "daysKnown", rows: lapsesTime, type: "scatter" },
+    axis: {
+      x: {
+        label: { text: "days known, with jitter" },
+        tick: { fit: false },
                      },
                  y : {label : {text : "# lapses, with jitter"}}
                },
@@ -1049,10 +1174,15 @@ function fixInput(parameter) {
     return parameter;
 }
 function getColumns(data) {
-    var columns = [];
+  const columns = [];
 
-    for (var i = 0; i < data.length; i++)
-        columns = _.union(columns, _.keys(data[i]));
+  for (let i = 0; i < data.length; i++) {
+    Object.keys(data[i]).forEach(function (key) {
+      if (columns.indexOf(key) === -1) {
+        columns.push(key);
+      }
+    });
+  }
 
     return columns;
 }
@@ -1072,23 +1202,26 @@ function convert(data, headers, suppressHeader) {
         return "";
     }
 
-    var columns = headers ? ((typeof headers == 'string') ? [headers] : headers)
+  const columns = headers
+    ? typeof headers == "string"
+      ? [headers]
+      : headers
                           : getColumns(data);
 
-    var rows = [];
+  const rows = [];
 
     if (!suppressHeader) {
         rows.push(columns);
     }
 
-    for (var i = 0; i < data.length; i++) {
-        var row = [];
-        _.forEach(columns, function(column) {
-            var value =
-                typeof data[i][column] == "object" && data[i][column] &&
-                    "[Object]" ||
-                typeof data[i][column] == "number" && String(data[i][column]) ||
-                data[i][column] || "";
+  for (let i = 0; i < data.length; i++) {
+    const row = [];
+    columns.forEach(function (column) {
+      const value =
+        (typeof data[i][column] == "object" && data[i][column] && "[Object]") ||
+        (typeof data[i][column] == "number" && String(data[i][column])) ||
+        data[i][column] ||
+        "";
             row.push(value);
         });
         rows.push(row);
@@ -1104,15 +1237,15 @@ $(document).ready(function() {
     });
 });
 function readySetup() {
-    var options = {};
-    var setOptionsImageLoad = function(){
-        options.loadImage = $('input#showImage').is(':checked');
+  const options = {};
+  const setOptionsImageLoad = function () {
+    options.loadImage = $("input#showImage").is(":checked");
         return options;
-    }
-    var eventHandleToTable = function(event) {
+  };
+  const eventHandleToTable = function (event) {
         event.stopPropagation();
         event.preventDefault();
-        var f = event.target.files[0];
+    let f = event.target.files[0];
         if (!f) {
             f = event.dataTransfer.files[0];
         }
@@ -1120,8 +1253,14 @@ function readySetup() {
 
         var reader = new FileReader();
         if ("function" in event.data) {
-            reader.onload =
-                function(e) { event.data.function(e.target.result); };
+      reader.onload = function (e) {
+        try {
+          event.data.function(e.target.result);
+        } catch (err) {
+          showError("Error processing file: " + err.message);
+          console.error(err);
+        }
+      };
         } else {
             reader.onload = function(e) { ankiBinaryToTable(e.target.result, setOptionsImageLoad()); };
         }
